@@ -1,0 +1,15 @@
+[package]
+name = "mcpm-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "mcpm"
+path = "src/main.rs"
+
+[dependencies]
+mcpm-core = { path = "../mcpm-core" }
+clap = { version = "4", default-features = false, features = ["std", "derive", "help"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "fmt", "env-filter"] }
+anyhow = "1"
