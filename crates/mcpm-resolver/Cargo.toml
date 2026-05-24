@@ -1,0 +1,13 @@
+[package]
+name = "mcpm-resolver"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mcpm-core = { path = "../mcpm-core" }
+indexmap = "2"
+tracing = "0.1"
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
