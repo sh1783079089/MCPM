@@ -237,3 +237,31 @@ mcpm export server-pack
 验收：
 
 - 生成的整合包可以被常见启动器工作流消费。
+
+## 阶段 11：反向导入已有模组
+
+目标：
+
+```bash
+mcpm import mods
+```
+
+将现有 `mods/` 目录中的模组 jar 反向解析并写入 `mcpm.toml`，方便已有整合包迁移到 mcpm 管理。
+
+任务：
+
+- 扫描 `mods/` 目录下所有 `.jar` 文件。
+- 从 jar 中提取 `fabric.mod.json` 元数据（id、version、name、environment）。
+- 用 mod ID 或名称查询 Modrinth，获取项目 slug 和 project_id。
+- 合并到 `mcpm.toml` 的 `[mods]` 段：
+  - 已存在的条目跳过不覆盖。
+  - Modrinth 找到的标记 `source = "modrinth"`，记录 project_id 和精确版本。
+  - Modrinth 找不到的标记 `source = "local"`，不管理其下载/更新。
+- 添加 `mcpm import mods --dry-run` 预览模式，仅打印将要加入的条目。
+- 添加 `mcpm import mods --skip-existing / --overwrite` 覆盖策略选项（默认跳过已存在）。
+
+验收：
+
+- 能从一个已有 `mods/` 目录生成可用的 `mcpm.toml` 模组列表。
+- 跳过已存在条目的默认行为不会覆盖用户手动配置。
+- 第三方/私有模组被正确标记为 local source 并给出警告。

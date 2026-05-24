@@ -47,7 +47,9 @@ farmers-delight = "latest"
 name = "tech-adventure"
 
 [environment]
+minecraft_range = ">=1.20 <1.22"       # 保留原始范围，供 unlock-env 还原
 minecraft = "1.20.1"
+loader_candidates = ["fabric", "forge", "neoforge"]  # 保留原始候选列表
 loader = "forge"
 loader_version = "47.2.20"
 side = "client"
@@ -63,6 +65,28 @@ jei = "latest"
 farmers-delight = "latest"
 embeddium = "latest"
 ```
+
+`minecraft_range` 和 `loader_candidates` 是锁定态保留的原始探索范围信息，`unlock-env` 时用于还原探索态。它们在探索态中不存在。
+
+### 模式推断规则
+
+配置模式不通过显式字段声明，而是由 `[environment]` 字段值的类型推断：
+
+| 字段 | 探索态 | 锁定态 |
+|------|--------|--------|
+| `minecraft` | 范围表达式（如 `">=1.20 <1.22"`） | 精确版本（如 `"1.20.1"`） |
+| `minecraft_range` | 不存在 | 保留原始范围 |
+| `loader` | 数组（如 `["fabric", "forge"]`） | 字符串（如 `"forge"`） |
+| `loader_candidates` | 不存在 | 保留原始候选列表 |
+| `loader_version` | 不存在 | 精确版本（如 `"47.2.20"`） |
+| `environment_strategy` | 存在（在 `[preferences]`） | 不存在 |
+
+推断逻辑：
+- `minecraft` 是范围表达式 → 探索态；是精确版本 → 锁定态
+- `loader` 是数组 → 探索态；是字符串 → 锁定态
+- 锁定态下，`minecraft_range` / `loader_candidates` 记录原始探索范围，`unlock-env` 时复原
+- 锁定态下 `loader_version` 记录已确定的加载器版本
+- `environment_strategy` 仅在探索态存在，锁定后移除
 
 ### 模组条目格式
 

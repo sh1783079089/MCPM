@@ -25,6 +25,8 @@ mcpm check
 mcpm solve
 mcpm solve-env
 mcpm use <candidate>
+mcpm lock-env
+mcpm un-lock-env
 mcpm update
 mcpm update --allow-loader
 mcpm upgrade-env
@@ -75,6 +77,35 @@ Best environments:
 ```bash
 mcpm use 1
 ```
+
+锁定环境：
+
+```bash
+mcpm lock-env
+```
+
+`lock-env` 将选中环境的精确值写入 `mcpm.toml` 的 `[environment]`，同时保留原始探索范围到 `minecraft_range` 和 `loader_candidates` 字段。
+
+`lock-env` 行为：
+- 若无锁文件，先运行 `solve-env`
+- 若只有一个候选环境，直接锁定；多个候选时需要用 `--choose` 指定
+- 将 `minecraft` 和 `loader` 替换为精确值
+- 将原始范围/候选列表写入 `minecraft_range` / `loader_candidates`
+- 从 `[preferences]` 移除 `environment_strategy`
+- 提示用户检查不可用的模组，不做自动替换
+
+```bash
+mcpm lock-env               # 唯一候选时直接锁定
+mcpm lock-env --choose 1    # 从候选列表选择并锁定
+```
+
+## 解除锁定工作流
+
+```bash
+mcpm un-lock-env
+```
+
+`un-lock-env` 用 `minecraft_range` 和 `loader_candidates` 还原 `[environment]` 为探索态，删除精确值字段和保留字段，恢复 `[preferences]` 中的 `environment_strategy`，并清除 `mcpm.lock.json`。
 
 ## 安装工作流
 
