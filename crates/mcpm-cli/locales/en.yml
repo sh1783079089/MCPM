@@ -1,0 +1,63 @@
+---
+_version: 1
+cli:
+  about: "Minecraft Package Manager"
+  init:
+    help: "Initialize a new modpack"
+    success: "Initialized modpack '%{name}' with Minecraft %{mc} + %{loader}"
+  add:
+    help: "Add a mod to the modpack"
+    searching: "Searching for '%{slug}' on Modrinth..."
+    found: "Found: %{title} (%{id})"
+    compatible: "  Compatible version: %{version} (%{release_type})"
+    added: "Added '%{title}' to modpack"
+    already_exists: "mod '%{slug}' is already in the modpack"
+    no_results: "no results found for '%{slug}'"
+    no_compatible: "'%{title}' has no versions compatible with Minecraft %{mc} + %{loader} (%{count} versions checked)"
+  remove:
+    help: "Remove a mod from the modpack"
+    removed_config: "Removed '%{slug}' from config"
+    removed_file: "  Removed: mods/%{filename}"
+    not_found: "'%{slug}' is not in the modpack"
+  autoremove:
+    help: "Remove orphaned dependencies"
+    none: "No orphaned dependencies found."
+    found: "Found %{count} orphaned dependencies:"
+    dep_line: "  %{name} %{version} [dependency]"
+    removed_config: "  Removed '%{slug}' from config"
+  install:
+    help: "Resolve dependencies and install mods"
+    resolving: "Resolving for Minecraft %{mc} + %{loader}..."
+    resolved: "Resolved %{count} mod(s):"
+    mod_line: "  %{name} %{version} [%{reason}]"
+    lockfile_written: "Lockfile written to %{path}"
+    installed: "  Installed: %{filename}"
+    install_error: "  Error installing %{filename}: %{error}"
+    complete: "Install complete: %{installed} installed, %{skipped} up-to-date"
+    with_errors: "install completed with %{count} error(s)"
+  list:
+    help: "List mods in the lockfile"
+    no_lockfile: "no lockfile found. Run 'mcpm install' first."
+    total: "Total: %{count} mod(s)"
+  check:
+    help: "Check for issues in the resolved modpack"
+    no_lockfile: "no lockfile found. Run 'mcpm install' first."
+    env_line: "Environment: Minecraft %{mc} + %{loader}"
+    mod_count: "Mods in lockfile: %{count}"
+    mod_line: "  ✓ %{name} %{version}"
+    complete: "Check complete."
+  resolve:
+    conflict: "CONFLICT: %{message}"
+    warning: "WARNING: %{message}"
+    reason_requested: "requested"
+    reason_dependency: "dependency"
+  error:
+    unknown_loader: "unknown loader '%{loader}'. Supported: fabric, quilt, forge, neoforge"
+    unknown_side: "unknown side '%{side}'. Supported: client, server, both"
+    loader_not_fixed: "environment loader must be fixed for resolution"
+    load_config: "failed to read %{file}"
+    parse_config: "failed to parse %{file}"
+    save_config: "failed to write %{file}"
+    serialize_config: "failed to serialize config"
+    create_mods_dir: "failed to create mods directory"
+    create_mcpm_dir: "failed to create .mcpm directory"

@@ -1,0 +1,63 @@
+---
+_version: 1
+cli:
+  about: "Minecraft 模组包管理器"
+  init:
+    help: "初始化新模组包"
+    success: "已初始化模组包 '%{name}'，Minecraft %{mc} + %{loader}"
+  add:
+    help: "添加模组到模组包"
+    searching: "正在 Modrinth 上搜索 '%{slug}'..."
+    found: "已找到：%{title} (%{id})"
+    compatible: "  兼容版本：%{version} (%{release_type})"
+    added: "已将 '%{title}' 添加到模组包"
+    already_exists: "模组 '%{slug}' 已在模组包中"
+    no_results: "未找到 '%{slug}' 的结果"
+    no_compatible: "'%{title}' 没有与 Minecraft %{mc} + %{loader} 兼容的版本（已检查 %{count} 个版本）"
+  remove:
+    help: "从模组包移除模组"
+    removed_config: "已从配置移除 '%{slug}'"
+    removed_file: "  已删除：mods/%{filename}"
+    not_found: "'%{slug}' 不在模组包中"
+  autoremove:
+    help: "移除孤立的依赖"
+    none: "未发现孤立的依赖。"
+    found: "发现 %{count} 个孤立的依赖："
+    dep_line: "  %{name} %{version} [依赖]"
+    removed_config: "  已从配置移除 '%{slug}'"
+  install:
+    help: "解析依赖并安装模组"
+    resolving: "正在为 Minecraft %{mc} + %{loader} 解析..."
+    resolved: "已解析 %{count} 个模组："
+    mod_line: "  %{name} %{version} [%{reason}]"
+    lockfile_written: "Lockfile 已写入 %{path}"
+    installed: "  已安装：%{filename}"
+    install_error: "  安装 %{filename} 失败：%{error}"
+    complete: "安装完成：%{installed} 已安装，%{skipped} 已是最新"
+    with_errors: "安装完成，但有 %{count} 个错误"
+  list:
+    help: "列出 lockfile 中的模组"
+    no_lockfile: "未找到 lockfile。请先运行 'mcpm install'。"
+    total: "共 %{count} 个模组"
+  check:
+    help: "检查已解析模组包的问题"
+    no_lockfile: "未找到 lockfile。请先运行 'mcpm install'。"
+    env_line: "环境：Minecraft %{mc} + %{loader}"
+    mod_count: "Lockfile 中的模组数：%{count}"
+    mod_line: "  ✓ %{name} %{version}"
+    complete: "检查完成。"
+  resolve:
+    conflict: "冲突：%{message}"
+    warning: "警告：%{message}"
+    reason_requested: "请求"
+    reason_dependency: "依赖"
+  error:
+    unknown_loader: "未知加载器 '%{loader}'。支持：fabric、quilt、forge、neoforge"
+    unknown_side: "未知端 '%{side}'。支持：client、server、both"
+    loader_not_fixed: "环境加载器必须是固定类型才能解析"
+    load_config: "读取 %{file} 失败"
+    parse_config: "解析 %{file} 失败"
+    save_config: "写入 %{file} 失败"
+    serialize_config: "序列化配置失败"
+    create_mods_dir: "创建 mods 目录失败"
+    create_mcpm_dir: "创建 .mcpm 目录失败"
