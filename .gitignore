@@ -19,6 +19,12 @@ rustc-ice-*.txt
 # RustRover
 .idea/
 
+# mcpm runtime files
+mcpm.toml
+mcpm.lock.json
+.mcpm/
+mods/
+
 # OS
 .DS_Store
 Thumbs.db
