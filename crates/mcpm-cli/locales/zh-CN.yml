@@ -51,6 +51,13 @@ cli:
     env_line: "环境：Minecraft %{mc} + %{loader}"
     mod_count: "Lockfile 中的模组数：%{count}"
     mod_line: "  ✓ %{name} %{version}"
+    jar_summary: "已扫描 mods/ 下 %{mods} 个 jar"
+    parse_error: "  解析失败 %{filename}：%{error}"
+    duplicate_id: "  重复的模组 id '%{id}'"
+    side_conflict: "  端不匹配 '%{id}' 为 %{mod_side}，但整合包端为 %{expected}（%{filename}）"
+    loader_mismatch: "  加载器不匹配 '%{id}' 为 %{actual}，但整合包为 %{expected}（%{filename}）"
+    missing_dependency: "  缺少依赖 '%{id}' 需要 '%{missing}'（%{filename}）"
+    loader_requirement: "  加载器版本要求 %{requirement}"
     complete: "检查完成。"
   solve_env:
     help: "探索并排序候选环境"

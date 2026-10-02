@@ -51,6 +51,13 @@ cli:
     env_line: "Environment: Minecraft %{mc} + %{loader}"
     mod_count: "Mods in lockfile: %{count}"
     mod_line: "  ✓ %{name} %{version}"
+    jar_summary: "Scanned %{mods} jar(s) in mods/"
+    parse_error: "  PARSE ERROR %{filename}: %{error}"
+    duplicate_id: "  DUPLICATE mod id '%{id}'"
+    side_conflict: "  SIDE '%{id}' is %{mod_side} but pack side is %{expected} (%{filename})"
+    loader_mismatch: "  LOADER '%{id}' is %{actual} but pack loader is %{expected} (%{filename})"
+    missing_dependency: "  MISSING '%{id}' requires '%{missing}' (%{filename})"
+    loader_requirement: "  LOADER VERSION %{requirement}"
     complete: "Check complete."
   solve_env:
     help: "Explore and rank candidate environments"

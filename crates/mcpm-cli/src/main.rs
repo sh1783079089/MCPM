@@ -716,8 +716,82 @@ async fn cmd_check() -> Result<()> {
         );
     }
 
+    check_installed_jars(&lockfile);
+
     println!("{}", t!("cli.check.complete"));
     Ok(())
+}
+
+fn check_installed_jars(lockfile: &mcpm_core::Lockfile) {
+    let report = mcpm_metadata::verify_dir(
+        std::path::Path::new("mods"),
+        lockfile.environment.side,
+        lockfile.environment.loader,
+    );
+
+    println!(
+        "{}",
+        t!(
+            "cli.check.jar_summary",
+            mods = report.mods.len().to_string()
+        )
+    );
+
+    for (filename, error) in &report.parse_errors {
+        eprintln!(
+            "{}",
+            t!("cli.check.parse_error", filename = filename, error = error)
+        );
+    }
+
+    for id in &report.duplicate_ids {
+        eprintln!("{}", t!("cli.check.duplicate_id", id = id));
+    }
+
+    for conflict in &report.side_conflicts {
+        eprintln!(
+            "{}",
+            t!(
+                "cli.check.side_conflict",
+                id = &conflict.id,
+                mod_side = conflict.mod_side.to_string(),
+                expected = conflict.expected.to_string(),
+                filename = &conflict.filename
+            )
+        );
+    }
+
+    for mismatch in &report.loader_mismatches {
+        eprintln!(
+            "{}",
+            t!(
+                "cli.check.loader_mismatch",
+                id = &mismatch.id,
+                actual = mismatch.actual.to_string(),
+                expected = mismatch.expected.to_string(),
+                filename = &mismatch.filename
+            )
+        );
+    }
+
+    for dep in &report.missing_dependencies {
+        eprintln!(
+            "{}",
+            t!(
+                "cli.check.missing_dependency",
+                id = &dep.id,
+                missing = &dep.missing,
+                filename = &dep.filename
+            )
+        );
+    }
+
+    for requirement in &report.loader_version_requirements {
+        println!(
+            "{}",
+            t!("cli.check.loader_requirement", requirement = requirement)
+        );
+    }
 }
 
 fn explore_loaders(config: &PackConfig) -> Vec<LoaderKind> {
