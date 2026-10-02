@@ -80,6 +80,25 @@ cli:
     help: "Restore the environment to explore mode"
     not_locked: "environment is already in explore mode"
     unlocked: "Unlocked environment: Minecraft %{minecraft}"
+  update:
+    help: "Update mods safely within the current environment"
+    no_lockfile: "no lockfile found. Add mods and run 'mcpm install' first."
+  upgrade_env:
+    help: "Upgrade the Minecraft version (explicit, plan-based)"
+    upgraded: "Environment upgraded to Minecraft %{mc}"
+  migrate_loader:
+    help: "Migrate to another loader type (explicit, plan-based)"
+    migrated: "Migrated to loader %{loader}"
+  apply_plan:
+    help: "Apply the last generated update plan"
+  plan:
+    header: "Update plan:"
+    install: "  + install %{name} %{version}"
+    update: "  ~ update %{name} %{from} -> %{to}"
+    remove: "  - remove %{name}"
+    no_changes: "Already up to date."
+    conflicts_block: "plan has unresolved conflicts; not applying"
+    applied: "Plan applied."
   resolve:
     conflict: "CONFLICT: %{message}"
     warning: "WARNING: %{message}"

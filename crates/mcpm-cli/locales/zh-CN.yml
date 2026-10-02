@@ -80,6 +80,25 @@ cli:
     help: "将环境还原为探索态"
     not_locked: "环境已处于探索态"
     unlocked: "已解锁环境：Minecraft %{minecraft}"
+  update:
+    help: "在当前环境内安全更新模组"
+    no_lockfile: "未找到 lockfile。请先添加模组并运行 'mcpm install'。"
+  upgrade_env:
+    help: "升级 Minecraft 版本（显式、基于计划）"
+    upgraded: "环境已升级到 Minecraft %{mc}"
+  migrate_loader:
+    help: "迁移到其他加载器类型（显式、基于计划）"
+    migrated: "已迁移到加载器 %{loader}"
+  apply_plan:
+    help: "应用最近生成的更新计划"
+  plan:
+    header: "更新计划："
+    install: "  + 安装 %{name} %{version}"
+    update: "  ~ 更新 %{name} %{from} -> %{to}"
+    remove: "  - 移除 %{name}"
+    no_changes: "已是最新。"
+    conflicts_block: "计划存在未解决的冲突，未应用"
+    applied: "计划已应用。"
   resolve:
     conflict: "冲突：%{message}"
     warning: "警告：%{message}"

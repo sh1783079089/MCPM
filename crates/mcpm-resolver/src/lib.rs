@@ -5,13 +5,25 @@ pub use env::{
     DEFAULT_MINECRAFT_VERSIONS,
 };
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::Path;
 
 use mcpm_core::{
-    compare_versions, platform_dependencies, CompatibilityConfig, DependencyKind, Environment,
-    LoaderKind, LockReason, McpmError, ModEntry, ModVersion, Preferences, Registry, ReleaseType,
-    ResolveConflict, ResolvePlan, ResolveWarning, ResolvedMod,
+    compare_versions, platform_dependencies, select_loader_version, CompatibilityConfig,
+    DependencyKind, Environment, LoaderKind, LoaderVersionRegistry, LockReason, Lockfile,
+    McpmError, ModEntry, ModVersion, PlanAction, Preferences, Registry, ReleaseType,
+    ResolveConflict, ResolvePlan, ResolveWarning, ResolvedMod, UpdatePlan, VersionRange,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateMode {
+    /// Only update mod versions; environment must stay identical.
+    Safe,
+    /// Like [`UpdateMode::Safe`], but may refresh the loader version.
+    AllowLoader,
+    /// Environment changes were explicitly requested.
+    Explicit,
+}
 
 fn release_rank(release_type: ReleaseType) -> u8 {
     match release_type {
@@ -372,26 +384,131 @@ pub fn plan_to_lockfile(
     let mut lockfile = mcpm_core::Lockfile::new(mcpm_version, lock_env);
 
     for r in &plan.mods {
-        lockfile.mods.push(mcpm_core::LockedMod {
-            name: r.name.clone(),
-            source: r.source,
-            project_id: r.project_id.clone(),
-            slug: r.slug.clone(),
-            version_id: r.version_id.clone(),
-            version_number: r.version_number.clone(),
-            version_type: Some(r.version_type),
-            filename: r.filename.clone(),
-            url: r.url.clone(),
-            sha512: r.sha512.clone(),
-            sha1: r.sha1.clone(),
-            size: r.size,
-            side: r.side,
-            reason: r.reason,
-            dependencies: r.dependencies.clone(),
-        });
+        lockfile.mods.push(mcpm_core::resolved_to_locked(r));
     }
 
     Ok(lockfile)
+}
+
+/// Computes the diff between an existing lockfile and a freshly resolved plan.
+pub fn diff_lockfile(old: &Lockfile, plan: &ResolvePlan, environment: &Environment) -> UpdatePlan {
+    let old_by_id: HashMap<&str, &mcpm_core::LockedMod> = old
+        .mods
+        .iter()
+        .map(|m| (m.project_id.as_str(), m))
+        .collect();
+    let new_ids: HashSet<&str> = plan.mods.iter().map(|m| m.project_id.as_str()).collect();
+
+    let mut actions = Vec::new();
+
+    for resolved in &plan.mods {
+        match old_by_id.get(resolved.project_id.as_str()) {
+            Some(old_mod) => {
+                if old_mod.version_id != resolved.version_id {
+                    actions.push(PlanAction::Update {
+                        from: (*old_mod).clone(),
+                        to: resolved.clone(),
+                    });
+                } else {
+                    actions.push(PlanAction::Keep((*old_mod).clone()));
+                }
+            }
+            None => actions.push(PlanAction::Install(resolved.clone())),
+        }
+    }
+
+    for old_mod in &old.mods {
+        if !new_ids.contains(old_mod.project_id.as_str()) {
+            actions.push(PlanAction::Remove(old_mod.clone()));
+        }
+    }
+
+    UpdatePlan {
+        environment: environment.clone(),
+        actions,
+        conflicts: plan.conflicts.clone(),
+        warnings: plan.warnings.clone(),
+        success: plan.success,
+    }
+}
+
+fn require_same_environment(environment: &Environment, old: &Lockfile) -> Result<(), McpmError> {
+    let env_loader = environment.loader.as_fixed();
+    if environment.minecraft != old.environment.minecraft
+        || env_loader != Some(old.environment.loader)
+        || environment.side != old.environment.side
+    {
+        return Err(McpmError::Config(
+            "safe update cannot change Minecraft, loader type, or side; use an explicit environment command"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn collect_loader_constraints(mods_dir: &Path, loader: LoaderKind) -> Vec<VersionRange> {
+    let mut constraints = Vec::new();
+    let Ok(entries) = std::fs::read_dir(mods_dir) else {
+        return constraints;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jar") {
+            continue;
+        }
+        if let Ok(metadatas) = mcpm_metadata::parse_jar(&path) {
+            for metadata in metadatas {
+                if metadata.loader == loader {
+                    if let Some(ref requirement) = metadata.loader_version {
+                        if let Ok(range) = VersionRange::parse(requirement) {
+                            constraints.push(range);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    constraints
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn plan_update(
+    registry: &dyn Registry,
+    mods: &indexmap::IndexMap<String, ModEntry>,
+    preferences: &Preferences,
+    compatibility: Option<&CompatibilityConfig>,
+    old: &Lockfile,
+    target_env: Environment,
+    mode: UpdateMode,
+    loader_registry: Option<&dyn LoaderVersionRegistry>,
+    mods_dir: &Path,
+) -> Result<UpdatePlan, McpmError> {
+    let mut environment = target_env;
+
+    match mode {
+        UpdateMode::Safe => {
+            require_same_environment(&environment, old)?;
+            environment.loader_version = old.environment.loader_version.clone();
+        }
+        UpdateMode::AllowLoader => {
+            require_same_environment(&environment, old)?;
+            if let (Some(loader_registry), Some(loader)) =
+                (loader_registry, environment.loader.as_fixed())
+            {
+                let constraints = collect_loader_constraints(mods_dir, loader);
+                let candidates = loader_registry
+                    .get_loader_versions(loader, &environment.minecraft)
+                    .await?;
+                environment.loader_version =
+                    select_loader_version(&candidates, &constraints).map(|v| v.version);
+            }
+        }
+        UpdateMode::Explicit => {}
+    }
+
+    let plan =
+        resolve_with_compat(registry, mods, &environment, preferences, compatibility).await?;
+    Ok(diff_lockfile(old, &plan, &environment))
 }
 
 #[cfg(test)]
@@ -782,5 +899,89 @@ mod tests {
             .find(|m| m.project_id == "sodium-id")
             .unwrap();
         assert_eq!(sodium.version_number, "0.5.8");
+    }
+
+    fn locked(name: &str, id: &str, version: &str) -> mcpm_core::LockedMod {
+        mcpm_core::LockedMod {
+            name: name.to_string(),
+            source: SourceKind::Modrinth,
+            project_id: id.to_string(),
+            slug: Some(id.to_string()),
+            version_id: format!("{}-{}", id, version),
+            version_number: version.to_string(),
+            version_type: Some(ReleaseType::Release),
+            filename: format!("{}.jar", id),
+            url: "https://example.com/x.jar".to_string(),
+            sha512: None,
+            sha1: None,
+            size: None,
+            side: Side::Both,
+            reason: LockReason::Requested,
+            dependencies: vec![],
+        }
+    }
+
+    #[test]
+    fn test_diff_lockfile_install_update_remove() {
+        let env = make_env("1.20.1", LoaderKind::Fabric);
+        let lock_env = mcpm_core::LockEnvironment {
+            minecraft: "1.20.1".to_string(),
+            loader: LoaderKind::Fabric,
+            loader_version: None,
+            side: Side::Both,
+        };
+        let mut old = mcpm_core::Lockfile::new("0.1.0", lock_env);
+        old.mods.push(locked("Sodium", "sodium-id", "0.5.8"));
+        old.mods.push(locked("Orphan", "orphan-id", "1.0.0"));
+
+        let mut plan = ResolvePlan {
+            mods: vec![],
+            warnings: vec![],
+            conflicts: vec![],
+            missing: vec![],
+            workarounds: vec![],
+            success: true,
+        };
+        let mut sodium = ResolvedMod {
+            name: "Sodium".to_string(),
+            source: SourceKind::Modrinth,
+            project_id: "sodium-id".to_string(),
+            slug: Some("sodium".to_string()),
+            version_id: "sodium-id-0.6.0".to_string(),
+            version_number: "0.6.0".to_string(),
+            version_type: ReleaseType::Release,
+            filename: "sodium-0.6.0.jar".to_string(),
+            url: "https://example.com/x.jar".to_string(),
+            sha512: None,
+            sha1: None,
+            size: None,
+            side: Side::Both,
+            reason: LockReason::Requested,
+            dependencies: vec![],
+        };
+        plan.mods.push(sodium.clone());
+        sodium.project_id = "lithium-id".to_string();
+        sodium.name = "Lithium".to_string();
+        sodium.version_id = "lithium-id-0.1.0".to_string();
+        sodium.version_number = "0.1.0".to_string();
+        plan.mods.push(sodium);
+
+        let update = diff_lockfile(&old, &plan, &env);
+
+        assert!(update.has_changes());
+        let mut installed = 0;
+        let mut updated = 0;
+        let mut removed = 0;
+        for action in &update.actions {
+            match action {
+                PlanAction::Install(_) => installed += 1,
+                PlanAction::Update { .. } => updated += 1,
+                PlanAction::Remove(_) => removed += 1,
+                PlanAction::Keep(_) => {}
+            }
+        }
+        assert_eq!(installed, 1);
+        assert_eq!(updated, 1);
+        assert_eq!(removed, 1);
     }
 }

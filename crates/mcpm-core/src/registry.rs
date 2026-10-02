@@ -1,5 +1,6 @@
 use crate::{LoaderKind, McpmError, ReleaseType, Side, SourceKind, VersionRange};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct Project {
@@ -163,14 +164,14 @@ pub struct ResolvePlan {
     pub success: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MissingRequested {
     pub name: String,
     pub project_id: Option<String>,
     pub message: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedMod {
     pub name: String,
     pub source: SourceKind,
@@ -189,14 +190,14 @@ pub struct ResolvedMod {
     pub dependencies: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolveWarning {
     pub project_id: String,
     pub name: String,
     pub message: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolveConflict {
     pub project_id: String,
     pub name: String,

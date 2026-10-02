@@ -2,6 +2,7 @@ pub mod compat;
 pub mod config;
 pub mod error;
 pub mod lockfile;
+pub mod plan;
 pub mod registry;
 pub mod version;
 
@@ -17,6 +18,7 @@ pub use config::{
 };
 pub use error::McpmError;
 pub use lockfile::{LockEnvironment, LockReason, LockedMod, Lockfile, LOCKFILE_VERSION};
+pub use plan::{resolved_to_locked, PlanAction, UpdatePlan};
 pub use registry::{
     infer_mod_side, select_loader_version, select_primary_file, version_matches_environment,
     version_matches_preferences, Dependency, DependencyKind, FileArtifact, Hashes, LoaderVersion,

@@ -1243,6 +1243,7 @@ dependencies = [
  "indexmap",
  "mcpm-compat",
  "mcpm-core",
+ "mcpm-metadata",
  "tokio",
  "tracing",
 ]

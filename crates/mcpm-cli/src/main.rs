@@ -87,6 +87,30 @@ pub enum Commands {
 
     /// Restore the environment to explore mode
     UnLockEnv,
+
+    /// Update mods safely within the current environment
+    Update {
+        /// Also refresh the loader version
+        #[arg(long)]
+        allow_loader: bool,
+    },
+
+    /// Upgrade the Minecraft version (explicit, plan-based)
+    UpgradeEnv {
+        /// Target Minecraft version (e.g. 1.21.1)
+        #[arg(long)]
+        target_minecraft: String,
+    },
+
+    /// Migrate to another loader type (explicit, plan-based)
+    MigrateLoader {
+        /// Target loader (fabric, quilt, forge, neoforge)
+        #[arg(long)]
+        to: String,
+    },
+
+    /// Apply the last generated update plan
+    ApplyPlan,
 }
 
 const CONFIG_FILE: &str = "mcpm.toml";
@@ -977,6 +1001,200 @@ async fn cmd_unlock_env() -> Result<()> {
     Ok(())
 }
 
+const PLAN_FILE: &str = ".mcpm/plans/plan.json";
+
+fn save_plan(plan: &mcpm_core::UpdatePlan) -> Result<()> {
+    let path = PathBuf::from(PLAN_FILE);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| t!("cli.error.save_config", file = PLAN_FILE))?;
+    }
+    let json = serde_json::to_string_pretty(plan).context(t!("cli.error.serialize_config"))?;
+    std::fs::write(&path, json).with_context(|| t!("cli.error.save_config", file = PLAN_FILE))?;
+    Ok(())
+}
+
+fn load_plan() -> Result<mcpm_core::UpdatePlan> {
+    let content = std::fs::read_to_string(PLAN_FILE)
+        .with_context(|| t!("cli.error.load_config", file = PLAN_FILE))?;
+    serde_json::from_str(&content).with_context(|| t!("cli.error.parse_config", file = PLAN_FILE))
+}
+
+fn print_plan(plan: &mcpm_core::UpdatePlan) {
+    println!("{}", t!("cli.plan.header"));
+    for action in &plan.actions {
+        match action {
+            mcpm_core::PlanAction::Install(m) => println!(
+                "{}",
+                t!(
+                    "cli.plan.install",
+                    name = &m.name,
+                    version = &m.version_number
+                )
+            ),
+            mcpm_core::PlanAction::Update { from, to } => println!(
+                "{}",
+                t!(
+                    "cli.plan.update",
+                    name = &to.name,
+                    from = &from.version_number,
+                    to = &to.version_number
+                )
+            ),
+            mcpm_core::PlanAction::Remove(m) => {
+                println!("{}", t!("cli.plan.remove", name = &m.name))
+            }
+            mcpm_core::PlanAction::Keep(_) => {}
+        }
+    }
+
+    for conflict in &plan.conflicts {
+        eprintln!(
+            "{}",
+            t!("cli.resolve.conflict", message = &conflict.message)
+        );
+    }
+    for warning in &plan.warnings {
+        println!("{}", t!("cli.resolve.warning", message = &warning.message));
+    }
+}
+
+async fn apply_update_plan(plan: &mcpm_core::UpdatePlan) -> Result<()> {
+    if !plan.success {
+        anyhow::bail!("{}", t!("cli.plan.conflicts_block"));
+    }
+
+    let lockfile = plan.to_lockfile(env!("CARGO_PKG_VERSION"))?;
+    save_lockfile(&lockfile)?;
+    run_installer(&lockfile).await?;
+
+    for m in plan.removals() {
+        let path = PathBuf::from("mods").join(&m.filename);
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+            println!("{}", t!("cli.remove.removed_file", filename = &m.filename));
+        }
+    }
+
+    println!("{}", t!("cli.plan.applied"));
+    Ok(())
+}
+
+async fn cmd_update(allow_loader: bool) -> Result<()> {
+    let config = load_config()?;
+    let old =
+        load_lockfile()?.ok_or_else(|| anyhow::anyhow!("{}", t!("cli.update.no_lockfile")))?;
+    let registry = ModrinthClient::new();
+    let mode = if allow_loader {
+        mcpm_resolver::UpdateMode::AllowLoader
+    } else {
+        mcpm_resolver::UpdateMode::Safe
+    };
+
+    let plan = mcpm_resolver::plan_update(
+        &registry,
+        &config.mods,
+        &config.preferences,
+        config.compatibility.as_ref(),
+        &old,
+        config.environment.clone(),
+        mode,
+        Some(&registry as &dyn mcpm_core::LoaderVersionRegistry),
+        std::path::Path::new("mods"),
+    )
+    .await?;
+
+    print_plan(&plan);
+
+    if !plan.has_changes() {
+        println!("{}", t!("cli.plan.no_changes"));
+        return Ok(());
+    }
+
+    save_plan(&plan)?;
+    apply_update_plan(&plan).await
+}
+
+async fn cmd_upgrade_env(target_minecraft: String) -> Result<()> {
+    let mut config = load_config()?;
+    let old =
+        load_lockfile()?.ok_or_else(|| anyhow::anyhow!("{}", t!("cli.update.no_lockfile")))?;
+    let registry = ModrinthClient::new();
+
+    let mut target = config.environment.clone();
+    target.minecraft = target_minecraft.clone();
+
+    let plan = mcpm_resolver::plan_update(
+        &registry,
+        &config.mods,
+        &config.preferences,
+        config.compatibility.as_ref(),
+        &old,
+        target,
+        mcpm_resolver::UpdateMode::Explicit,
+        Some(&registry as &dyn mcpm_core::LoaderVersionRegistry),
+        std::path::Path::new("mods"),
+    )
+    .await?;
+
+    print_plan(&plan);
+    save_plan(&plan)?;
+    apply_update_plan(&plan).await?;
+
+    config.environment.minecraft = target_minecraft.clone();
+    config.environment.loader_version = plan.environment.loader_version.clone();
+    save_config(&config)?;
+    println!("{}", t!("cli.upgrade_env.upgraded", mc = &target_minecraft));
+    Ok(())
+}
+
+async fn cmd_migrate_loader(to: String) -> Result<()> {
+    let target_loader = parse_loader(&to)?;
+    let mut config = load_config()?;
+    let old =
+        load_lockfile()?.ok_or_else(|| anyhow::anyhow!("{}", t!("cli.update.no_lockfile")))?;
+    let registry = ModrinthClient::new();
+
+    let mut target = config.environment.clone();
+    target.loader = LoaderSpec::Fixed(target_loader);
+    target.loader_version = None;
+
+    let plan = mcpm_resolver::plan_update(
+        &registry,
+        &config.mods,
+        &config.preferences,
+        config.compatibility.as_ref(),
+        &old,
+        target,
+        mcpm_resolver::UpdateMode::Explicit,
+        Some(&registry as &dyn mcpm_core::LoaderVersionRegistry),
+        std::path::Path::new("mods"),
+    )
+    .await?;
+
+    print_plan(&plan);
+    save_plan(&plan)?;
+    apply_update_plan(&plan).await?;
+
+    config.environment.loader = LoaderSpec::Fixed(target_loader);
+    config.environment.loader_version = plan.environment.loader_version.clone();
+    save_config(&config)?;
+    println!(
+        "{}",
+        t!(
+            "cli.migrate_loader.migrated",
+            loader = target_loader.to_string()
+        )
+    );
+    Ok(())
+}
+
+async fn cmd_apply_plan() -> Result<()> {
+    let plan = load_plan()?;
+    print_plan(&plan);
+    apply_update_plan(&plan).await
+}
+
 fn build_cli() -> Command {
     Cli::command()
         .about(t!("cli.about").to_string())
@@ -996,6 +1214,16 @@ fn build_cli() -> Command {
         .mut_subcommand("lock-env", |c| c.about(t!("cli.lock_env.help").to_string()))
         .mut_subcommand("un-lock-env", |c| {
             c.about(t!("cli.un_lock_env.help").to_string())
+        })
+        .mut_subcommand("update", |c| c.about(t!("cli.update.help").to_string()))
+        .mut_subcommand("upgrade-env", |c| {
+            c.about(t!("cli.upgrade_env.help").to_string())
+        })
+        .mut_subcommand("migrate-loader", |c| {
+            c.about(t!("cli.migrate_loader.help").to_string())
+        })
+        .mut_subcommand("apply-plan", |c| {
+            c.about(t!("cli.apply_plan.help").to_string())
         })
 }
 
@@ -1030,6 +1258,10 @@ async fn main() -> Result<()> {
             Commands::Use { candidate } => cmd_use(candidate).await,
             Commands::LockEnv { choose } => cmd_lock_env(choose).await,
             Commands::UnLockEnv => cmd_unlock_env().await,
+            Commands::Update { allow_loader } => cmd_update(allow_loader).await,
+            Commands::UpgradeEnv { target_minecraft } => cmd_upgrade_env(target_minecraft).await,
+            Commands::MigrateLoader { to } => cmd_migrate_loader(to).await,
+            Commands::ApplyPlan => cmd_apply_plan().await,
         },
     };
 
