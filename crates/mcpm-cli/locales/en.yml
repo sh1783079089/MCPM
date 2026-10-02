@@ -52,6 +52,27 @@ cli:
     mod_count: "Mods in lockfile: %{count}"
     mod_line: "  ✓ %{name} %{version}"
     complete: "Check complete."
+  solve_env:
+    help: "Explore and rank candidate environments"
+    title: "Best environments:"
+    candidate: "%{index}. Minecraft %{mc} + %{loader}"
+    requested: "   Requested mods available: %{available}/%{total}"
+    missing: "   Missing: %{mods}"
+    dependencies: "   Dependencies: %{count}"
+    risks: "   Known risks: %{warnings} warning(s), %{conflicts} conflict(s)"
+    score: "   Score: %{score}"
+    none: "No candidate environments generated."
+  use:
+    help: "Apply a candidate environment from solve-env"
+    invalid_index: "invalid candidate index %{index} (valid: 1-%{max})"
+    selected: "Selected environment: Minecraft %{mc} + %{loader}"
+  lock_env:
+    help: "Lock the resolved environment into the config"
+    multiple: "multiple candidate environments found; use --choose <n>"
+  un_lock_env:
+    help: "Restore the environment to explore mode"
+    not_locked: "environment is already in explore mode"
+    unlocked: "Unlocked environment: Minecraft %{minecraft}"
   resolve:
     conflict: "CONFLICT: %{message}"
     warning: "WARNING: %{message}"

@@ -1,3 +1,10 @@
+mod env;
+
+pub use env::{
+    default_minecraft_candidates, solve_env, CandidateEvaluation, EnvironmentCandidate,
+    DEFAULT_MINECRAFT_VERSIONS,
+};
+
 use std::collections::{HashMap, VecDeque};
 
 use mcpm_core::{
@@ -52,6 +59,28 @@ pub async fn resolve(
     environment: &Environment,
     preferences: &Preferences,
 ) -> Result<ResolvePlan, McpmError> {
+    resolve_impl(registry, mods, environment, preferences, false).await
+}
+
+/// Like [`resolve`], but records requested mods that cannot be resolved
+/// (missing or incompatible) instead of failing. Used when evaluating
+/// candidate environments.
+pub async fn resolve_partial(
+    registry: &dyn Registry,
+    mods: &indexmap::IndexMap<String, ModEntry>,
+    environment: &Environment,
+    preferences: &Preferences,
+) -> Result<ResolvePlan, McpmError> {
+    resolve_impl(registry, mods, environment, preferences, true).await
+}
+
+async fn resolve_impl(
+    registry: &dyn Registry,
+    mods: &indexmap::IndexMap<String, ModEntry>,
+    environment: &Environment,
+    preferences: &Preferences,
+    collect_missing: bool,
+) -> Result<ResolvePlan, McpmError> {
     let game_version = &environment.minecraft;
     let loader = environment.loader.as_fixed().ok_or_else(|| {
         McpmError::Config(
@@ -62,6 +91,7 @@ pub async fn resolve(
     let mut resolved: HashMap<String, ResolvedMod> = HashMap::new();
     let mut warnings: Vec<ResolveWarning> = Vec::new();
     let mut conflicts: Vec<ResolveConflict> = Vec::new();
+    let mut missing: Vec<mcpm_core::MissingRequested> = Vec::new();
 
     struct QueueItem {
         name: String,
@@ -96,6 +126,14 @@ pub async fn resolve(
         } else {
             let results = registry.search_projects(&item.name).await?;
             if results.is_empty() {
+                if collect_missing {
+                    missing.push(mcpm_core::MissingRequested {
+                        name: item.name.clone(),
+                        project_id: item.project_id.clone(),
+                        message: format!("no project found for '{}'", item.name),
+                    });
+                    continue;
+                }
                 return Err(McpmError::SearchNoResults(item.name.clone()));
             }
             let best = &results[0];
@@ -108,6 +146,17 @@ pub async fn resolve(
 
         if !preferences.source.is_empty() && !preferences.source.contains(&project.source) {
             if item.reason == LockReason::Requested {
+                if collect_missing {
+                    missing.push(mcpm_core::MissingRequested {
+                        name: item.name.clone(),
+                        project_id: item.project_id.clone(),
+                        message: format!(
+                            "source '{}' for '{}' is not allowed by preferences",
+                            project.source, project.title
+                        ),
+                    });
+                    continue;
+                }
                 return Err(McpmError::Config(format!(
                     "source '{}' for '{}' is not allowed by preferences",
                     project.source, project.title
@@ -137,6 +186,17 @@ pub async fn resolve(
             Some(v) => v,
             None => {
                 if item.reason == LockReason::Requested {
+                    if collect_missing {
+                        missing.push(mcpm_core::MissingRequested {
+                            name: item.name.clone(),
+                            project_id: item.project_id.clone(),
+                            message: format!(
+                                "no compatible version for '{}' on Minecraft {} + {}",
+                                project.title, game_version, loader
+                            ),
+                        });
+                        continue;
+                    }
                     return Err(McpmError::NoCompatibleVersion {
                         project: project.title.clone(),
                     });
@@ -235,13 +295,14 @@ pub async fn resolve(
         }
     }
 
-    let success = conflicts.is_empty();
+    let success = conflicts.is_empty() && missing.is_empty();
     let resolved_mods: Vec<ResolvedMod> = resolved.into_values().collect();
 
     Ok(ResolvePlan {
         mods: resolved_mods,
         warnings,
         conflicts,
+        missing,
         success,
     })
 }
@@ -386,7 +447,9 @@ mod tests {
     fn make_env(mc: &str, loader: LoaderKind) -> Environment {
         Environment {
             minecraft: mc.to_string(),
+            minecraft_range: None,
             loader: LoaderSpec::Fixed(loader),
+            loader_candidates: None,
             loader_version: None,
             side: Side::Both,
         }

@@ -10,8 +10,8 @@ use clap::{Command, CommandFactory, FromArgMatches, Parser, Subcommand};
 use i18n::t;
 use mcpm_core::{
     version_matches_environment, version_matches_preferences, DetailedModEntry, Environment,
-    LoaderKind, LoaderSpec, LockReason, ModEntry, PackConfig, PackMeta, Preferences, Registry,
-    Side,
+    EnvironmentStrategy, LoaderKind, LoaderSpec, LockReason, ModEntry, PackConfig, PackMeta,
+    Preferences, Registry, Side, VersionRange,
 };
 use mcpm_installer::Installer;
 use mcpm_registry::ModrinthClient;
@@ -68,6 +68,25 @@ pub enum Commands {
 
     /// Check for issues in the resolved modpack
     Check,
+
+    /// Explore and rank candidate environments
+    SolveEnv,
+
+    /// Apply a candidate environment from solve-env
+    Use {
+        /// Candidate index (1-based)
+        candidate: usize,
+    },
+
+    /// Lock the resolved environment into the config
+    LockEnv {
+        /// Candidate index to lock when multiple candidates exist
+        #[arg(long)]
+        choose: Option<usize>,
+    },
+
+    /// Restore the environment to explore mode
+    UnLockEnv,
 }
 
 const CONFIG_FILE: &str = "mcpm.toml";
@@ -264,7 +283,9 @@ async fn cmd_init(
         },
         environment: Environment {
             minecraft: minecraft.clone(),
+            minecraft_range: None,
             loader: LoaderSpec::Fixed(loader_kind),
+            loader_candidates: None,
             loader_version: None,
             side: side_kind,
         },
@@ -690,6 +711,188 @@ async fn cmd_check() -> Result<()> {
     Ok(())
 }
 
+fn explore_loaders(config: &PackConfig) -> Vec<LoaderKind> {
+    match &config.environment.loader {
+        LoaderSpec::Candidates(loaders) => loaders.clone(),
+        LoaderSpec::Fixed(loader) => vec![*loader],
+    }
+}
+
+async fn compute_candidates(
+    config: &PackConfig,
+) -> Result<Vec<mcpm_resolver::CandidateEvaluation>> {
+    let registry = ModrinthClient::new();
+    let range = VersionRange::parse(&config.environment.minecraft).ok();
+    let loaders = explore_loaders(config);
+    let evaluations = mcpm_resolver::solve_env(
+        &registry,
+        &config.mods,
+        range.as_ref(),
+        &loaders,
+        config.environment.side,
+        &config.preferences,
+    )
+    .await?;
+    Ok(evaluations)
+}
+
+async fn apply_candidate(
+    config: &mut PackConfig,
+    index: usize,
+    evaluations: &[mcpm_resolver::CandidateEvaluation],
+) -> Result<()> {
+    if index == 0 || index > evaluations.len() {
+        anyhow::bail!(
+            "{}",
+            t!(
+                "cli.use.invalid_index",
+                index = index.to_string(),
+                max = evaluations.len().to_string()
+            )
+        );
+    }
+
+    let chosen = &evaluations[index - 1];
+    let explore_range = config.environment.minecraft.clone();
+    let explore_loaders = explore_loaders(config);
+
+    config.environment.minecraft = chosen.candidate.minecraft.clone();
+    config.environment.minecraft_range = Some(explore_range);
+    config.environment.loader = LoaderSpec::Fixed(chosen.candidate.loader);
+    config.environment.loader_candidates = Some(explore_loaders);
+    config.environment.loader_version = chosen.candidate.loader_version.clone();
+    config.preferences.environment_strategy = None;
+    save_config(config)?;
+
+    resolve_and_install(config).await?;
+
+    println!(
+        "{}",
+        t!(
+            "cli.use.selected",
+            mc = &chosen.candidate.minecraft,
+            loader = chosen.candidate.loader.to_string()
+        )
+    );
+    Ok(())
+}
+
+async fn cmd_solve_env() -> Result<()> {
+    let config = load_config()?;
+    let evaluations = compute_candidates(&config).await?;
+
+    if evaluations.is_empty() {
+        println!("{}", t!("cli.solve_env.none"));
+        return Ok(());
+    }
+
+    println!("{}", t!("cli.solve_env.title"));
+    for (i, e) in evaluations.iter().enumerate() {
+        println!(
+            "{}",
+            t!(
+                "cli.solve_env.candidate",
+                index = (i + 1).to_string(),
+                mc = &e.candidate.minecraft,
+                loader = e.candidate.loader.to_string()
+            )
+        );
+        println!(
+            "{}",
+            t!(
+                "cli.solve_env.requested",
+                available = e.requested_available.to_string(),
+                total = e.requested_total.to_string()
+            )
+        );
+        if !e.missing.is_empty() {
+            println!(
+                "{}",
+                t!("cli.solve_env.missing", mods = e.missing.join(", "))
+            );
+        }
+        println!(
+            "{}",
+            t!(
+                "cli.solve_env.dependencies",
+                count = e.dependency_count.to_string()
+            )
+        );
+        println!(
+            "{}",
+            t!(
+                "cli.solve_env.risks",
+                warnings = e.warnings.len().to_string(),
+                conflicts = e.conflicts.len().to_string()
+            )
+        );
+        println!("{}", t!("cli.solve_env.score", score = e.score.to_string()));
+        println!();
+    }
+
+    Ok(())
+}
+
+async fn cmd_use(candidate: usize) -> Result<()> {
+    let mut config = load_config()?;
+    let evaluations = compute_candidates(&config).await?;
+    if evaluations.is_empty() {
+        anyhow::bail!("{}", t!("cli.solve_env.none"));
+    }
+    apply_candidate(&mut config, candidate, &evaluations).await?;
+    Ok(())
+}
+
+async fn cmd_lock_env(choose: Option<usize>) -> Result<()> {
+    let mut config = load_config()?;
+    let evaluations = compute_candidates(&config).await?;
+    if evaluations.is_empty() {
+        anyhow::bail!("{}", t!("cli.solve_env.none"));
+    }
+
+    let index = match choose {
+        Some(index) => index,
+        None if evaluations.len() == 1 => 1,
+        None => anyhow::bail!("{}", t!("cli.lock_env.multiple")),
+    };
+
+    apply_candidate(&mut config, index, &evaluations).await?;
+    Ok(())
+}
+
+async fn cmd_unlock_env() -> Result<()> {
+    let mut config = load_config()?;
+
+    let range = config
+        .environment
+        .minecraft_range
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("{}", t!("cli.un_lock_env.not_locked")))?;
+    let loaders = config.environment.loader_candidates.take();
+
+    config.environment.minecraft = range;
+    if let Some(loaders) = loaders {
+        config.environment.loader = LoaderSpec::Candidates(loaders);
+    }
+    config.environment.loader_version = None;
+    config.preferences.environment_strategy = Some(EnvironmentStrategy::MostCompatible);
+    save_config(&config)?;
+
+    if PathBuf::from(LOCK_FILE).exists() {
+        std::fs::remove_file(LOCK_FILE)
+            .with_context(|| t!("cli.error.save_config", file = LOCK_FILE))?;
+    }
+
+    println!(
+        "{}",
+        t!(
+            "cli.un_lock_env.unlocked",
+            minecraft = &config.environment.minecraft
+        )
+    );
+    Ok(())
+}
+
 fn build_cli() -> Command {
     Cli::command()
         .about(t!("cli.about").to_string())
@@ -702,6 +905,14 @@ fn build_cli() -> Command {
         .mut_subcommand("install", |c| c.about(t!("cli.install.help").to_string()))
         .mut_subcommand("list", |c| c.about(t!("cli.list.help").to_string()))
         .mut_subcommand("check", |c| c.about(t!("cli.check.help").to_string()))
+        .mut_subcommand("solve-env", |c| {
+            c.about(t!("cli.solve_env.help").to_string())
+        })
+        .mut_subcommand("use", |c| c.about(t!("cli.use.help").to_string()))
+        .mut_subcommand("lock-env", |c| c.about(t!("cli.lock_env.help").to_string()))
+        .mut_subcommand("un-lock-env", |c| {
+            c.about(t!("cli.un_lock_env.help").to_string())
+        })
 }
 
 #[tokio::main]
@@ -731,6 +942,10 @@ async fn main() -> Result<()> {
             Commands::Install => cmd_install().await,
             Commands::List => cmd_list().await,
             Commands::Check => cmd_check().await,
+            Commands::SolveEnv => cmd_solve_env().await,
+            Commands::Use { candidate } => cmd_use(candidate).await,
+            Commands::LockEnv { choose } => cmd_lock_env(choose).await,
+            Commands::UnLockEnv => cmd_unlock_env().await,
         },
     };
 

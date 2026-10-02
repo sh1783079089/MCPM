@@ -116,7 +116,15 @@ pub struct ResolvePlan {
     pub mods: Vec<ResolvedMod>,
     pub warnings: Vec<ResolveWarning>,
     pub conflicts: Vec<ResolveConflict>,
+    pub missing: Vec<MissingRequested>,
     pub success: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct MissingRequested {
+    pub name: String,
+    pub project_id: Option<String>,
+    pub message: String,
 }
 
 #[derive(Debug, Clone)]

@@ -7,14 +7,15 @@ pub mod version;
 use serde::{Deserialize, Serialize};
 
 pub use config::{
-    DetailedModEntry, Environment, LoaderSpec, ModEntry, PackConfig, PackMeta, Preferences,
+    DetailedModEntry, Environment, EnvironmentStrategy, LoaderSpec, ModEntry, PackConfig, PackMeta,
+    Preferences,
 };
 pub use error::McpmError;
 pub use lockfile::{LockEnvironment, LockReason, LockedMod, Lockfile, LOCKFILE_VERSION};
 pub use registry::{
     infer_mod_side, select_primary_file, version_matches_environment, version_matches_preferences,
-    Dependency, DependencyKind, FileArtifact, Hashes, ModVersion, Project, Registry,
-    ResolveConflict, ResolvePlan, ResolveWarning, ResolvedMod,
+    Dependency, DependencyKind, FileArtifact, Hashes, MissingRequested, ModVersion, Project,
+    Registry, ResolveConflict, ResolvePlan, ResolveWarning, ResolvedMod,
 };
 pub use version::{compare_versions, ModVersionNumber, VersionRange};
 

@@ -25,7 +25,11 @@ pub struct PackMeta {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Environment {
     pub minecraft: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minecraft_range: Option<String>,
     pub loader: LoaderSpec,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loader_candidates: Option<Vec<LoaderKind>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loader_version: Option<String>,
     #[serde(default)]
@@ -57,6 +61,16 @@ pub struct Preferences {
     pub allow_beta: bool,
     #[serde(default = "default_source")]
     pub source: Vec<SourceKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment_strategy: Option<EnvironmentStrategy>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvironmentStrategy {
+    #[default]
+    MostCompatible,
+    Newest,
 }
 
 fn default_release_type() -> crate::ReleaseType {
@@ -73,6 +87,7 @@ impl Default for Preferences {
             release_type: default_release_type(),
             allow_beta: false,
             source: default_source(),
+            environment_strategy: None,
         }
     }
 }
@@ -152,7 +167,9 @@ mod tests {
             },
             environment: Environment {
                 minecraft: "1.20.1".to_string(),
+                minecraft_range: None,
                 loader: LoaderSpec::Fixed(LoaderKind::Fabric),
+                loader_candidates: None,
                 loader_version: None,
                 side: Side::Both,
             },
@@ -209,6 +226,67 @@ mod tests {
         assert_eq!(entry.project_id(), Some("abc123"));
         assert_eq!(entry.source(), Some(SourceKind::Modrinth));
         assert_eq!(entry.side(), Some(Side::Client));
+    }
+
+    #[test]
+    fn test_locked_environment_roundtrip() {
+        let config = PackConfig {
+            pack: PackMeta {
+                name: "pack".to_string(),
+                author: None,
+                description: None,
+            },
+            environment: Environment {
+                minecraft: "1.20.1".to_string(),
+                minecraft_range: Some(">=1.20 <1.22".to_string()),
+                loader: LoaderSpec::Fixed(LoaderKind::Forge),
+                loader_candidates: Some(vec![LoaderKind::Fabric, LoaderKind::Forge]),
+                loader_version: Some("47.2.20".to_string()),
+                side: Side::Client,
+            },
+            preferences: Preferences::default(),
+            mods: indexmap::IndexMap::new(),
+        };
+
+        let toml_str = toml::to_string_pretty(&config).expect("serialize");
+        assert!(toml_str.contains("loader = \"forge\""));
+        assert!(toml_str.contains("minecraft_range = \">=1.20 <1.22\""));
+
+        let parsed: PackConfig = toml::from_str(&toml_str).expect("deserialize");
+        assert_eq!(
+            parsed.environment.minecraft_range.as_deref(),
+            Some(">=1.20 <1.22")
+        );
+        assert_eq!(
+            parsed.environment.loader_version.as_deref(),
+            Some("47.2.20")
+        );
+        assert_eq!(
+            parsed.environment.loader_candidates,
+            Some(vec![LoaderKind::Fabric, LoaderKind::Forge])
+        );
+    }
+
+    #[test]
+    fn test_explore_environment_roundtrip() {
+        let toml_str = r#"
+[pack]
+name = "explore-pack"
+
+[environment]
+minecraft = ">=1.20 <1.22"
+loader = ["fabric", "forge"]
+side = "client"
+
+[mods]
+sodium = "latest"
+"#;
+        let parsed: PackConfig = toml::from_str(toml_str).expect("deserialize");
+        assert!(matches!(
+            parsed.environment.loader,
+            LoaderSpec::Candidates(_)
+        ));
+        assert_eq!(parsed.environment.loader.as_fixed(), None);
     }
 
     #[test]

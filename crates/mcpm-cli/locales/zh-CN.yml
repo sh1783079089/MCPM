@@ -52,6 +52,27 @@ cli:
     mod_count: "Lockfile 中的模组数：%{count}"
     mod_line: "  ✓ %{name} %{version}"
     complete: "检查完成。"
+  solve_env:
+    help: "探索并排序候选环境"
+    title: "最佳环境："
+    candidate: "%{index}. Minecraft %{mc} + %{loader}"
+    requested: "   可用请求模组：%{available}/%{total}"
+    missing: "   缺失：%{mods}"
+    dependencies: "   依赖数：%{count}"
+    risks: "   已知风险：%{warnings} 个警告，%{conflicts} 个冲突"
+    score: "   评分：%{score}"
+    none: "未生成任何候选环境。"
+  use:
+    help: "应用 solve-env 中的候选环境"
+    invalid_index: "无效的候选序号 %{index}（有效范围：1-%{max}）"
+    selected: "已选择环境：Minecraft %{mc} + %{loader}"
+  lock_env:
+    help: "将解析出的环境锁定到配置"
+    multiple: "存在多个候选环境；请使用 --choose <n>"
+  un_lock_env:
+    help: "将环境还原为探索态"
+    not_locked: "环境已处于探索态"
+    unlocked: "已解锁环境：Minecraft %{minecraft}"
   resolve:
     conflict: "冲突：%{message}"
     warning: "警告：%{message}"
