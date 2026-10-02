@@ -44,10 +44,11 @@ pub enum Commands {
         side: String,
     },
 
-    /// Add a mod to the modpack
+    /// Add one or more mods to the modpack
     Add {
-        /// Mod slug or project ID
-        slug: String,
+        /// Mod slugs or project IDs
+        #[arg(required = true)]
+        slugs: Vec<String>,
     },
 
     /// Remove a mod from the modpack
@@ -195,8 +196,14 @@ async fn resolve_and_install(config: &PackConfig) -> Result<mcpm_core::Lockfile>
     save_lockfile(&lockfile)?;
     println!("\n{}", t!("cli.install.lockfile_written", path = LOCK_FILE));
 
+    run_installer(&lockfile).await?;
+
+    Ok(lockfile)
+}
+
+async fn run_installer(lockfile: &mcpm_core::Lockfile) -> Result<()> {
     let installer = Installer::new(std::path::Path::new("."))?;
-    let result = installer.install(&lockfile).await?;
+    let result = installer.install(lockfile).await?;
 
     for f in &result.installed {
         println!("{}", t!("cli.install.installed", filename = f));
@@ -221,6 +228,7 @@ async fn resolve_and_install(config: &PackConfig) -> Result<mcpm_core::Lockfile>
                 skipped = result.skipped.len().to_string()
             )
         );
+        Ok(())
     } else {
         anyhow::bail!(
             "{}",
@@ -228,10 +236,8 @@ async fn resolve_and_install(config: &PackConfig) -> Result<mcpm_core::Lockfile>
                 "cli.install.with_errors",
                 count = result.errors.len().to_string()
             )
-        );
+        )
     }
-
-    Ok(lockfile)
 }
 
 async fn cmd_init(
@@ -287,80 +293,94 @@ async fn cmd_init(
     Ok(())
 }
 
-async fn cmd_add(slug: String) -> Result<()> {
+async fn cmd_add(slugs: Vec<String>) -> Result<()> {
     let mut config = load_config()?;
-
-    if config.mods.contains_key(&slug) {
-        anyhow::bail!("{}", t!("cli.add.already_exists", slug = &slug));
-    }
 
     let loader = config
         .environment
         .loader
         .as_fixed()
         .ok_or_else(|| anyhow::anyhow!("{}", t!("cli.error.loader_not_fixed")))?;
-    let game_version = &config.environment.minecraft;
-
-    println!("{}", t!("cli.add.searching", slug = &slug));
+    let game_version = config.environment.minecraft.clone();
     let registry = ModrinthClient::new();
-    let results = registry.search_projects(&slug).await?;
 
-    if results.is_empty() {
-        anyhow::bail!("{}", t!("cli.add.no_results", slug = &slug));
-    }
+    let mut added: Vec<(String, String)> = Vec::new();
 
-    let best = &results[0];
-    let project = registry.get_project(&best.id).await?;
+    for slug in &slugs {
+        if config.mods.contains_key(slug) {
+            anyhow::bail!("{}", t!("cli.add.already_exists", slug = slug));
+        }
 
-    println!(
-        "{}",
-        t!("cli.add.found", title = &project.title, id = &project.id)
-    );
+        println!("{}", t!("cli.add.searching", slug = slug));
+        let results = registry.search_projects(slug).await?;
 
-    let versions = registry.get_versions(&project.id).await?;
-    let compatible: Vec<_> = versions
-        .iter()
-        .filter(|v| {
-            version_matches_environment(v, game_version, loader)
-                && version_matches_preferences(v, &config.preferences)
-        })
-        .collect();
+        if results.is_empty() {
+            anyhow::bail!("{}", t!("cli.add.no_results", slug = slug));
+        }
 
-    if compatible.is_empty() {
-        let all_versions = versions.len();
-        anyhow::bail!(
+        let best = &results[0];
+        let project = registry.get_project(&best.id).await?;
+
+        println!(
+            "{}",
+            t!("cli.add.found", title = &project.title, id = &project.id)
+        );
+
+        let versions = registry.get_versions(&project.id).await?;
+        let compatible: Vec<_> = versions
+            .iter()
+            .filter(|v| {
+                version_matches_environment(v, &game_version, loader)
+                    && version_matches_preferences(v, &config.preferences)
+            })
+            .collect();
+
+        if compatible.is_empty() {
+            let all_versions = versions.len();
+            anyhow::bail!(
+                "{}",
+                t!(
+                    "cli.add.no_compatible",
+                    title = &project.title,
+                    mc = game_version,
+                    loader = loader.to_string(),
+                    count = all_versions.to_string()
+                )
+            );
+        }
+
+        let best_version = mcpm_resolver::select_best_version(
+            &versions,
+            &game_version,
+            loader,
+            &config.preferences,
+            None,
+        )
+        .unwrap_or(compatible[0]);
+
+        println!(
             "{}",
             t!(
-                "cli.add.no_compatible",
-                title = &project.title,
-                mc = game_version,
-                loader = loader.to_string(),
-                count = all_versions.to_string()
+                "cli.add.compatible",
+                version = &best_version.version_number,
+                release_type = best_version.version_type.to_string()
             )
         );
+
+        let entry = ModEntry::Detailed(DetailedModEntry {
+            version: Some("latest".to_string()),
+            source: Some(mcpm_core::SourceKind::Modrinth),
+            side: None,
+            project_id: Some(project.id.clone()),
+        });
+
+        let display_name = project.slug.as_deref().unwrap_or(slug).to_string();
+        config.mods.insert(display_name.clone(), entry);
+        println!("{}", t!("cli.add.added", title = &project.title));
+        added.push((display_name, project.id.clone()));
     }
 
-    println!(
-        "{}",
-        t!(
-            "cli.add.compatible",
-            version = &compatible[0].version_number,
-            release_type = compatible[0].version_type.to_string()
-        )
-    );
-
-    let entry = ModEntry::Detailed(DetailedModEntry {
-        version: Some("latest".to_string()),
-        source: Some(mcpm_core::SourceKind::Modrinth),
-        side: None,
-        project_id: Some(project.id.clone()),
-    });
-
-    let display_name = project.slug.as_deref().unwrap_or(&slug).to_string();
-    config.mods.insert(display_name.clone(), entry);
-
     save_config(&config)?;
-    println!("{}", t!("cli.add.added", title = &project.title));
 
     let existing_lockfile = load_lockfile()?;
 
@@ -369,15 +389,18 @@ async fn cmd_add(slug: String) -> Result<()> {
         let new_entries = {
             let mut temp_config = config.clone();
             temp_config.mods.clear();
-            temp_config.mods.insert(
-                display_name.clone(),
-                ModEntry::Detailed(DetailedModEntry {
-                    version: Some("latest".to_string()),
-                    source: Some(mcpm_core::SourceKind::Modrinth),
-                    side: None,
-                    project_id: Some(project.id.clone()),
-                }),
-            );
+            for (display_name, project_id) in &added {
+                temp_config.mods.insert(
+                    display_name.clone(),
+                    ModEntry::Detailed(DetailedModEntry {
+                        version: Some("latest".to_string()),
+                        source: Some(mcpm_core::SourceKind::Modrinth),
+                        side: None,
+                        project_id: Some(project_id.clone()),
+                    }),
+                );
+            }
+
             let plan = mcpm_resolver::resolve(
                 &registry,
                 &temp_config.mods,
@@ -437,41 +460,7 @@ async fn cmd_add(slug: String) -> Result<()> {
                 mods: new_entries,
             };
 
-            let installer = Installer::new(std::path::Path::new("."))?;
-            let result = installer.install(&install_lock).await?;
-
-            for f in &result.installed {
-                println!("{}", t!("cli.install.installed", filename = f));
-            }
-            for (f, e) in &result.errors {
-                eprintln!(
-                    "{}",
-                    t!(
-                        "cli.install.install_error",
-                        filename = f,
-                        error = e.to_string()
-                    )
-                );
-            }
-
-            if result.errors.is_empty() {
-                println!(
-                    "{}",
-                    t!(
-                        "cli.install.complete",
-                        installed = result.installed.len().to_string(),
-                        skipped = result.skipped.len().to_string()
-                    )
-                );
-            } else {
-                anyhow::bail!(
-                    "{}",
-                    t!(
-                        "cli.install.with_errors",
-                        count = result.errors.len().to_string()
-                    )
-                );
-            }
+            run_installer(&install_lock).await?;
         } else {
             println!("{}", t!("cli.add.all_in_lockfile"));
         }
@@ -622,8 +611,9 @@ async fn cmd_autoremove() -> Result<()> {
 }
 
 async fn cmd_install() -> Result<()> {
-    let config = load_config()?;
-    resolve_and_install(&config).await?;
+    let lockfile =
+        load_lockfile()?.ok_or_else(|| anyhow::anyhow!("{}", t!("cli.install.no_lockfile")))?;
+    run_installer(&lockfile).await?;
     Ok(())
 }
 
@@ -735,7 +725,7 @@ async fn main() -> Result<()> {
                 name,
                 side,
             } => cmd_init(minecraft, loader, name, side).await,
-            Commands::Add { slug } => cmd_add(slug).await,
+            Commands::Add { slugs } => cmd_add(slugs).await,
             Commands::Remove { slug } => cmd_remove(slug).await,
             Commands::Autoremove => cmd_autoremove().await,
             Commands::Install => cmd_install().await,

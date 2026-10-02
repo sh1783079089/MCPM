@@ -1,9 +1,50 @@
 use std::collections::{HashMap, VecDeque};
 
 use mcpm_core::{
-    platform_dependencies, DependencyKind, Environment, LockReason, McpmError, ModEntry,
-    Preferences, Registry, ResolveConflict, ResolvePlan, ResolveWarning, ResolvedMod,
+    compare_versions, platform_dependencies, DependencyKind, Environment, LoaderKind, LockReason,
+    McpmError, ModEntry, ModVersion, Preferences, Registry, ReleaseType, ResolveConflict,
+    ResolvePlan, ResolveWarning, ResolvedMod,
 };
+
+fn release_rank(release_type: ReleaseType) -> u8 {
+    match release_type {
+        ReleaseType::Alpha => 0,
+        ReleaseType::Beta => 1,
+        ReleaseType::Release => 2,
+    }
+}
+
+/// Selects the best compatible version, honoring an optional pinned
+/// version/id and preferring stable releases over pre-releases.
+pub fn select_best_version<'a>(
+    versions: &'a [ModVersion],
+    game_version: &str,
+    loader: LoaderKind,
+    preferences: &Preferences,
+    pin: Option<&str>,
+) -> Option<&'a ModVersion> {
+    let mut candidates: Vec<&ModVersion> = versions
+        .iter()
+        .filter(|v| {
+            mcpm_core::version_matches_environment(v, game_version, loader)
+                && mcpm_core::version_matches_preferences(v, preferences)
+        })
+        .collect();
+
+    if let Some(pin) = pin {
+        if !pin.is_empty() && !pin.eq_ignore_ascii_case("latest") {
+            candidates.retain(|v| v.id == pin || v.version_number.eq_ignore_ascii_case(pin));
+        }
+    }
+
+    candidates.sort_by(|a, b| {
+        release_rank(a.version_type)
+            .cmp(&release_rank(b.version_type))
+            .then_with(|| compare_versions(&a.version_number, &b.version_number))
+    });
+
+    candidates.last().copied()
+}
 
 pub async fn resolve(
     registry: &dyn Registry,
@@ -26,6 +67,7 @@ pub async fn resolve(
         name: String,
         project_id: Option<String>,
         reason: LockReason,
+        version: Option<String>,
     }
 
     let mut queue: VecDeque<QueueItem> = VecDeque::new();
@@ -35,6 +77,7 @@ pub async fn resolve(
             name: name.clone(),
             project_id: entry.project_id().map(|s| s.to_string()),
             reason: LockReason::Requested,
+            version: Some(entry.version().to_string()),
         });
     }
 
@@ -43,6 +86,7 @@ pub async fn resolve(
             name: slug.to_string(),
             project_id: Some(project_id.to_string()),
             reason: LockReason::Dependency,
+            version: None,
         });
     }
 
@@ -62,34 +106,53 @@ pub async fn resolve(
             continue;
         }
 
-        let versions = registry.get_versions(&project.id).await?;
-        let compatible: Vec<&mcpm_core::ModVersion> = versions
-            .iter()
-            .filter(|v| {
-                mcpm_core::version_matches_environment(v, game_version, loader)
-                    && mcpm_core::version_matches_preferences(v, preferences)
-            })
-            .collect();
-
-        if compatible.is_empty() {
+        if !preferences.source.is_empty() && !preferences.source.contains(&project.source) {
             if item.reason == LockReason::Requested {
-                return Err(McpmError::NoCompatibleVersion {
-                    project: project.title.clone(),
-                });
-            } else {
-                warnings.push(ResolveWarning {
-                    project_id: project.id.clone(),
-                    name: project.title.clone(),
-                    message: format!(
-                        "no compatible version found for dependency '{}' on Minecraft {} + {}",
-                        project.title, game_version, loader
-                    ),
-                });
-                continue;
+                return Err(McpmError::Config(format!(
+                    "source '{}' for '{}' is not allowed by preferences",
+                    project.source, project.title
+                )));
             }
+            warnings.push(ResolveWarning {
+                project_id: project.id.clone(),
+                name: project.title.clone(),
+                message: format!(
+                    "dependency '{}' from source '{}' skipped by source preferences",
+                    project.title, project.source
+                ),
+            });
+            continue;
         }
 
-        let best_version = compatible[0];
+        let versions = registry.get_versions(&project.id).await?;
+        let best_version = select_best_version(
+            &versions,
+            game_version,
+            loader,
+            preferences,
+            item.version.as_deref(),
+        );
+
+        let best_version = match best_version {
+            Some(v) => v,
+            None => {
+                if item.reason == LockReason::Requested {
+                    return Err(McpmError::NoCompatibleVersion {
+                        project: project.title.clone(),
+                    });
+                } else {
+                    warnings.push(ResolveWarning {
+                        project_id: project.id.clone(),
+                        name: project.title.clone(),
+                        message: format!(
+                            "no compatible version found for dependency '{}' on Minecraft {} + {}",
+                            project.title, game_version, loader
+                        ),
+                    });
+                    continue;
+                }
+            }
+        };
 
         let file = mcpm_core::select_primary_file(&best_version.files).ok_or_else(|| {
             McpmError::NoCompatibleVersion {
@@ -133,6 +196,7 @@ pub async fn resolve(
                                 name: dep_project_id.clone(),
                                 project_id: Some(dep_project_id.clone()),
                                 reason: LockReason::Dependency,
+                                version: dep.version_id.clone(),
                             });
                         }
                     }
@@ -546,5 +610,68 @@ mod tests {
             .find(|m| m.project_id == "P7dR8mSH")
             .unwrap();
         assert_eq!(fa_mod.reason, LockReason::Requested); // Respects user intent
+    }
+
+    #[tokio::test]
+    async fn test_prefers_release_over_newer_beta() {
+        let mut reg = MockRegistry::new();
+        reg.add_project(make_project("sodium-id", "sodium", "Sodium"));
+        reg.add_project(make_project("P7dR8mSH", "fabric-api", "Fabric API"));
+        reg.add_version(
+            "P7dR8mSH",
+            make_version("P7dR8mSH", "0.100.0", &["1.20.1"], &[LoaderKind::Fabric]),
+        );
+        reg.add_version(
+            "sodium-id",
+            make_version("sodium-id", "0.6.0", &["1.20.1"], &[LoaderKind::Fabric]),
+        );
+        let mut beta = make_version("sodium-id", "0.7.0", &["1.20.1"], &[LoaderKind::Fabric]);
+        beta.version_type = ReleaseType::Beta;
+        reg.add_version("sodium-id", beta);
+
+        let mut mods = indexmap::IndexMap::new();
+        mods.insert("sodium".to_string(), ModEntry::Simple("latest".to_string()));
+
+        let env = make_env("1.20.1", LoaderKind::Fabric);
+        let plan = resolve(&reg, &mods, &env, &make_prefs()).await.unwrap();
+
+        let sodium = plan
+            .mods
+            .iter()
+            .find(|m| m.project_id == "sodium-id")
+            .unwrap();
+        assert_eq!(sodium.version_number, "0.6.0");
+    }
+
+    #[tokio::test]
+    async fn test_requested_version_is_pinned() {
+        let mut reg = MockRegistry::new();
+        reg.add_project(make_project("sodium-id", "sodium", "Sodium"));
+        reg.add_project(make_project("P7dR8mSH", "fabric-api", "Fabric API"));
+        reg.add_version(
+            "P7dR8mSH",
+            make_version("P7dR8mSH", "0.100.0", &["1.20.1"], &[LoaderKind::Fabric]),
+        );
+        reg.add_version(
+            "sodium-id",
+            make_version("sodium-id", "0.5.8", &["1.20.1"], &[LoaderKind::Fabric]),
+        );
+        reg.add_version(
+            "sodium-id",
+            make_version("sodium-id", "0.6.0", &["1.20.1"], &[LoaderKind::Fabric]),
+        );
+
+        let mut mods = indexmap::IndexMap::new();
+        mods.insert("sodium".to_string(), ModEntry::Simple("0.5.8".to_string()));
+
+        let env = make_env("1.20.1", LoaderKind::Fabric);
+        let plan = resolve(&reg, &mods, &env, &make_prefs()).await.unwrap();
+
+        let sodium = plan
+            .mods
+            .iter()
+            .find(|m| m.project_id == "sodium-id")
+            .unwrap();
+        assert_eq!(sodium.version_number, "0.5.8");
     }
 }

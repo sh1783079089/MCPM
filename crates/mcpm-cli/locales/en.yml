@@ -28,6 +28,7 @@ cli:
     removed_config: "  Removed '%{slug}' from config"
   install:
     help: "Resolve dependencies and install mods"
+    no_lockfile: "no lockfile found. Add mods first with 'mcpm add <mod>'."
     resolving: "Resolving for Minecraft %{mc} + %{loader}..."
     resolved: "Resolved %{count} mod(s):"
     mod_line: "  %{name} %{version} [%{reason}]"

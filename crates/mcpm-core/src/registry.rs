@@ -70,14 +70,24 @@ pub fn version_matches_environment(
 }
 
 pub fn version_matches_preferences(version: &ModVersion, prefs: &crate::Preferences) -> bool {
-    match prefs.release_type {
+    let base_ok = match prefs.release_type {
         ReleaseType::Release => version.version_type == ReleaseType::Release,
         ReleaseType::Beta => matches!(
             version.version_type,
             ReleaseType::Release | ReleaseType::Beta
         ),
         ReleaseType::Alpha => true,
+    };
+
+    if base_ok {
+        return true;
     }
+
+    prefs.allow_beta
+        && matches!(
+            version.version_type,
+            ReleaseType::Release | ReleaseType::Beta
+        )
 }
 
 pub fn select_primary_file(files: &[FileArtifact]) -> Option<&FileArtifact> {

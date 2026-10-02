@@ -2,6 +2,7 @@ pub mod config;
 pub mod error;
 pub mod lockfile;
 pub mod registry;
+pub mod version;
 
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +16,7 @@ pub use registry::{
     Dependency, DependencyKind, FileArtifact, Hashes, ModVersion, Project, Registry,
     ResolveConflict, ResolvePlan, ResolveWarning, ResolvedMod,
 };
+pub use version::{compare_versions, ModVersionNumber};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

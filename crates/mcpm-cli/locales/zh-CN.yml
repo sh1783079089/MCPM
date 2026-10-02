@@ -28,6 +28,7 @@ cli:
     removed_config: "  已从配置移除 '%{slug}'"
   install:
     help: "解析依赖并安装模组"
+    no_lockfile: "未找到 lockfile。请先用 'mcpm add <模组>' 添加模组。"
     resolving: "正在为 Minecraft %{mc} + %{loader} 解析..."
     resolved: "已解析 %{count} 个模组："
     mod_line: "  %{name} %{version} [%{reason}]"
