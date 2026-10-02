@@ -14,6 +14,7 @@ cli:
     already_exists: "模组 '%{slug}' 已在模组包中"
     no_results: "未找到 '%{slug}' 的结果"
     no_compatible: "'%{title}' 没有与 Minecraft %{mc} + %{loader} 兼容的版本（已检查 %{count} 个版本）"
+    all_in_lockfile: "所有依赖已在 lockfile 中。"
   remove:
     help: "从模组包移除模组"
     removed_config: "已从配置移除 '%{slug}'"
@@ -38,6 +39,10 @@ cli:
   list:
     help: "列出 lockfile 中的模组"
     no_lockfile: "未找到 lockfile。请先运行 'mcpm install'。"
+    header_name: "名称"
+    header_version: "版本"
+    header_source: "来源"
+    header_reason: "原因"
     total: "共 %{count} 个模组"
   check:
     help: "检查已解析模组包的问题"
@@ -51,6 +56,9 @@ cli:
     warning: "警告：%{message}"
     reason_requested: "请求"
     reason_dependency: "依赖"
+  common:
+    source_modrinth: "modrinth"
+    error_prefix: "错误"
   error:
     unknown_loader: "未知加载器 '%{loader}'。支持：fabric、quilt、forge、neoforge"
     unknown_side: "未知端 '%{side}'。支持：client、server、both"

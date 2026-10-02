@@ -14,6 +14,7 @@ cli:
     already_exists: "mod '%{slug}' is already in the modpack"
     no_results: "no results found for '%{slug}'"
     no_compatible: "'%{title}' has no versions compatible with Minecraft %{mc} + %{loader} (%{count} versions checked)"
+    all_in_lockfile: "All dependencies already in lockfile."
   remove:
     help: "Remove a mod from the modpack"
     removed_config: "Removed '%{slug}' from config"
@@ -38,6 +39,10 @@ cli:
   list:
     help: "List mods in the lockfile"
     no_lockfile: "no lockfile found. Run 'mcpm install' first."
+    header_name: "Name"
+    header_version: "Version"
+    header_source: "Source"
+    header_reason: "Reason"
     total: "Total: %{count} mod(s)"
   check:
     help: "Check for issues in the resolved modpack"
@@ -51,6 +56,9 @@ cli:
     warning: "WARNING: %{message}"
     reason_requested: "requested"
     reason_dependency: "dependency"
+  common:
+    source_modrinth: "modrinth"
+    error_prefix: "error"
   error:
     unknown_loader: "unknown loader '%{loader}'. Supported: fabric, quilt, forge, neoforge"
     unknown_side: "unknown side '%{side}'. Supported: client, server, both"

@@ -357,12 +357,127 @@ async fn cmd_add(slug: String) -> Result<()> {
     });
 
     let display_name = project.slug.as_deref().unwrap_or(&slug).to_string();
-    config.mods.insert(display_name, entry);
+    config.mods.insert(display_name.clone(), entry);
 
     save_config(&config)?;
     println!("{}", t!("cli.add.added", title = &project.title));
 
-    resolve_and_install(&config).await?;
+    let existing_lockfile = load_lockfile()?;
+
+    if let Some(mut lockfile) = existing_lockfile {
+        let mcpm_version = env!("CARGO_PKG_VERSION");
+        let new_entries = {
+            let mut temp_config = config.clone();
+            temp_config.mods.clear();
+            temp_config.mods.insert(
+                display_name.clone(),
+                ModEntry::Detailed(DetailedModEntry {
+                    version: Some("latest".to_string()),
+                    source: Some(mcpm_core::SourceKind::Modrinth),
+                    side: None,
+                    project_id: Some(project.id.clone()),
+                }),
+            );
+            let plan = mcpm_resolver::resolve(
+                &registry,
+                &temp_config.mods,
+                &temp_config.environment,
+                &temp_config.preferences,
+            )
+            .await?;
+
+            for conflict in &plan.conflicts {
+                eprintln!(
+                    "{}",
+                    t!("cli.resolve.conflict", message = &conflict.message)
+                );
+            }
+            for warning in &plan.warnings {
+                println!("{}", t!("cli.resolve.warning", message = &warning.message));
+            }
+
+            let temp_lock =
+                mcpm_resolver::plan_to_lockfile(&plan, &config.environment, mcpm_version)?;
+
+            let existing_ids: HashSet<String> =
+                lockfile.mods.iter().map(|m| m.project_id.clone()).collect();
+            let mut new = Vec::new();
+            for m in &temp_lock.mods {
+                if !existing_ids.contains(&m.project_id) {
+                    new.push(m.clone());
+                    lockfile.mods.push(m.clone());
+                }
+            }
+            new
+        };
+
+        save_lockfile(&lockfile)?;
+
+        if !new_entries.is_empty() {
+            for m in &new_entries {
+                let reason = match m.reason {
+                    LockReason::Requested => t!("cli.resolve.reason_requested"),
+                    LockReason::Dependency => t!("cli.resolve.reason_dependency"),
+                };
+                println!(
+                    "  {}",
+                    t!(
+                        "cli.install.mod_line",
+                        name = &m.name,
+                        version = &m.version_number,
+                        reason = &reason
+                    )
+                );
+            }
+
+            let install_lock = mcpm_core::Lockfile {
+                lockfile_version: lockfile.lockfile_version,
+                mcpm_version: lockfile.mcpm_version.clone(),
+                environment: lockfile.environment.clone(),
+                mods: new_entries,
+            };
+
+            let installer = Installer::new(std::path::Path::new("."))?;
+            let result = installer.install(&install_lock).await?;
+
+            for f in &result.installed {
+                println!("{}", t!("cli.install.installed", filename = f));
+            }
+            for (f, e) in &result.errors {
+                eprintln!(
+                    "{}",
+                    t!(
+                        "cli.install.install_error",
+                        filename = f,
+                        error = e.to_string()
+                    )
+                );
+            }
+
+            if result.errors.is_empty() {
+                println!(
+                    "{}",
+                    t!(
+                        "cli.install.complete",
+                        installed = result.installed.len().to_string(),
+                        skipped = result.skipped.len().to_string()
+                    )
+                );
+            } else {
+                anyhow::bail!(
+                    "{}",
+                    t!(
+                        "cli.install.with_errors",
+                        count = result.errors.len().to_string()
+                    )
+                );
+            }
+        } else {
+            println!("{}", t!("cli.add.all_in_lockfile"));
+        }
+    } else {
+        resolve_and_install(&config).await?;
+    }
 
     Ok(())
 }
@@ -518,7 +633,10 @@ async fn cmd_list() -> Result<()> {
 
     println!(
         "{:<30} {:<15} {:<10} {:<10}",
-        "Name", "Version", "Source", "Reason"
+        t!("cli.list.header_name"),
+        t!("cli.list.header_version"),
+        t!("cli.list.header_source"),
+        t!("cli.list.header_reason"),
     );
     println!("{}", "-".repeat(65));
     for m in &lockfile.mods {
@@ -526,9 +644,13 @@ async fn cmd_list() -> Result<()> {
             LockReason::Requested => t!("cli.resolve.reason_requested"),
             LockReason::Dependency => t!("cli.resolve.reason_dependency"),
         };
+        let source_str = match m.source {
+            mcpm_core::SourceKind::Modrinth => t!("cli.common.source_modrinth"),
+            _ => format!("{}", m.source).into(),
+        };
         println!(
             "{:<30} {:<15} {:<10} {:<10}",
-            m.name, m.version_number, m.source, reason
+            m.name, m.version_number, source_str, reason
         );
     }
     println!(
@@ -623,7 +745,7 @@ async fn main() -> Result<()> {
     };
 
     if let Err(ref e) = result {
-        eprintln!("error: {:#}", e);
+        eprintln!("{}: {:#}", t!("cli.common.error_prefix"), e);
         std::process::exit(1);
     }
 
