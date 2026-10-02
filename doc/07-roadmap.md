@@ -265,3 +265,28 @@ mcpm import mods
 - 能从一个已有 `mods/` 目录生成可用的 `mcpm.toml` 模组列表。
 - 跳过已存在条目的默认行为不会覆盖用户手动配置。
 - 第三方/私有模组被正确标记为 local source 并给出警告。
+
+## 实现状态
+
+| 阶段 | 状态 | 说明 |
+|------|------|------|
+| 0 项目骨架 | ✅ 完成 | Rust workspace、CLI 骨架、CI、数据模型、i18n |
+| 1 Modrinth 与固定环境安装 | ✅ 完成 | `init`/`add`/`install`、Modrinth 客户端、SHA-512 校验、安装到 `mods/` |
+| 2 依赖解析 | ✅ 完成 | required 递归、optional 警告、incompatible 冲突、去重、`list`/`check` |
+| 3 环境求解 | ✅ 完成 | `solve-env`/`use`/`lock-env`/`un-lock-env`，候选评分 |
+| 4 更新计划 | ✅ 完成 | `update`/`update --allow-loader`/`upgrade-env`/`migrate-loader`/`apply-plan` |
+| 5 本地兼容性规则 | ✅ 完成 | `[compatibility]` conflicts（hard/soft）与 workarounds，`mcpm-compat` |
+| 6 Jar 元数据解析 | ✅ 完成 | fabric/quilt/forge/neoforge 元数据解析，`mcpm-metadata`，`check` 校验 |
+| 6b Loader 版本求解 | ✅ 完成 | `select_loader_version` 交集求解，Fabric/Quilt/Forge/NeoForge 版本来源 |
+| 7 社区规则集 | ⬜ 未开始 | `sync-rules` 等 |
+| 8 崩溃报告分析器 | ⬜ 未开始 | `check-crash` |
+| 9 CurseForge 支持 | ⬜ 未开始 | 仅 `SourceKind` 占位 |
+| 10 导入导出与服务端包 | ⬜ 未开始 | mrpack/curseforge/server-pack |
+| 11 反向导入已有模组 | ⬜ 未开始 | `import mods` |
+
+### 已知偏差与后续项
+
+- `add` 目前取搜索首项，无交互选择。
+- 版本选择以 release 优先 + 版本号自然序，尚未按发布时间排序。
+- 环境求解的 loader 版本在探索阶段仍为空（约束需 jar 元数据，安装后才有）。
+- 社区规则、崩溃分析、CurseForge、导入导出、反向导入均待实现。

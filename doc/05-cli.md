@@ -40,6 +40,10 @@ mcpm export curseforge
 mcpm export server-pack
 ```
 
+> 实现状态：
+> 已实现 `solve-env`、`use`、`lock-env`、`un-lock-env`、`update`、`update --allow-loader`、`upgrade-env`、`migrate-loader`、`apply-plan`。
+> `solve`（固定环境解析计划）尚未单独暴露；`check-crash`、`sync-rules`、导入导出系列未实现。
+
 ## 探索工作流
 
 ```bash
