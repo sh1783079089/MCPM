@@ -16,7 +16,7 @@ pub use registry::{
     Dependency, DependencyKind, FileArtifact, Hashes, ModVersion, Project, Registry,
     ResolveConflict, ResolvePlan, ResolveWarning, ResolvedMod,
 };
-pub use version::{compare_versions, ModVersionNumber};
+pub use version::{compare_versions, ModVersionNumber, VersionRange};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

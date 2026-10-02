@@ -119,6 +119,157 @@ impl fmt::Display for ModVersionNumber {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Constraint {
+    Gte(String),
+    Gt(String),
+    Lte(String),
+    Lt(String),
+    Eq(String),
+}
+
+impl Constraint {
+    fn matches(&self, version: &str) -> bool {
+        match self {
+            Constraint::Gte(v) => compare_versions(version, v) != Ordering::Less,
+            Constraint::Gt(v) => compare_versions(version, v) == Ordering::Greater,
+            Constraint::Lte(v) => compare_versions(version, v) != Ordering::Greater,
+            Constraint::Lt(v) => compare_versions(version, v) == Ordering::Less,
+            Constraint::Eq(v) => compare_versions(version, v) == Ordering::Equal,
+        }
+    }
+}
+
+/// A version constraint expression.
+///
+/// Supports operator form (`>=1.20 <1.22`, `>=1.20,<1.22`), exact
+/// versions (`1.20.1`), the wildcards `*`/`latest`, and Maven-style
+/// bracket ranges (`[1.4,1.5)`, `(,1.0]`, `[1.0]`). Multiple bracket
+/// ranges are treated as a union (OR); operator tokens form a
+/// conjunction (AND).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionRange {
+    clauses: Vec<Vec<Constraint>>,
+}
+
+impl VersionRange {
+    pub fn parse(input: &str) -> Result<Self, String> {
+        let trimmed = input.trim();
+        if trimmed.is_empty() || trimmed == "*" || trimmed.eq_ignore_ascii_case("latest") {
+            return Ok(VersionRange {
+                clauses: Vec::new(),
+            });
+        }
+        if trimmed.contains('[') || trimmed.contains('(') {
+            Self::parse_bracket_ranges(trimmed)
+        } else {
+            Self::parse_operator_ranges(trimmed)
+        }
+    }
+
+    fn parse_operator_ranges(input: &str) -> Result<Self, String> {
+        let tokens: Vec<&str> = input
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|s| !s.is_empty())
+            .collect();
+        if tokens.is_empty() {
+            return Ok(VersionRange {
+                clauses: Vec::new(),
+            });
+        }
+        let clause = tokens
+            .into_iter()
+            .map(Self::parse_operator_token)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(VersionRange {
+            clauses: vec![clause],
+        })
+    }
+
+    fn parse_operator_token(token: &str) -> Result<Constraint, String> {
+        let token = token.trim();
+        if let Some(rest) = token.strip_prefix(">=") {
+            Ok(Constraint::Gte(rest.trim().to_string()))
+        } else if let Some(rest) = token.strip_prefix("<=") {
+            Ok(Constraint::Lte(rest.trim().to_string()))
+        } else if let Some(rest) = token.strip_prefix("==") {
+            Ok(Constraint::Eq(rest.trim().to_string()))
+        } else if let Some(rest) = token.strip_prefix('>') {
+            Ok(Constraint::Gt(rest.trim().to_string()))
+        } else if let Some(rest) = token.strip_prefix('<') {
+            Ok(Constraint::Lt(rest.trim().to_string()))
+        } else if let Some(rest) = token.strip_prefix('=') {
+            Ok(Constraint::Eq(rest.trim().to_string()))
+        } else {
+            Ok(Constraint::Eq(token.to_string()))
+        }
+    }
+
+    fn parse_bracket_ranges(input: &str) -> Result<Self, String> {
+        let mut clauses = Vec::new();
+        let mut chars = input.chars().peekable();
+
+        while let Some(c) = chars.next() {
+            if c == '[' || c == '(' {
+                let lower_inclusive = c == '[';
+                let mut body = String::new();
+                let mut closed = None;
+                for next in chars.by_ref() {
+                    if next == ']' || next == ')' {
+                        closed = Some(next);
+                        break;
+                    }
+                    body.push(next);
+                }
+                let upper = closed.ok_or_else(|| format!("unterminated range in '{}'", input))?;
+                let upper_inclusive = upper == ']';
+
+                let parts: Vec<&str> = body.splitn(2, ',').collect();
+                if parts.len() == 1 {
+                    let value = parts[0].trim();
+                    if value.is_empty() {
+                        return Err(format!("empty exact range in '{}'", input));
+                    }
+                    clauses.push(vec![Constraint::Eq(value.to_string())]);
+                } else {
+                    let mut clause = Vec::new();
+                    let lower = parts[0].trim();
+                    let upper_bound = parts[1].trim();
+                    if !lower.is_empty() {
+                        clause.push(if lower_inclusive {
+                            Constraint::Gte(lower.to_string())
+                        } else {
+                            Constraint::Gt(lower.to_string())
+                        });
+                    }
+                    if !upper_bound.is_empty() {
+                        clause.push(if upper_inclusive {
+                            Constraint::Lte(upper_bound.to_string())
+                        } else {
+                            Constraint::Lt(upper_bound.to_string())
+                        });
+                    }
+                    clauses.push(clause);
+                }
+            }
+        }
+
+        if clauses.is_empty() {
+            return Err(format!("invalid version range '{}'", input));
+        }
+        Ok(VersionRange { clauses })
+    }
+
+    pub fn matches(&self, version: &str) -> bool {
+        if self.clauses.is_empty() {
+            return true;
+        }
+        self.clauses
+            .iter()
+            .any(|clause| clause.iter().all(|c| c.matches(version)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +308,61 @@ mod tests {
         versions.sort();
         assert_eq!(versions[0].as_str(), "0.5.8");
         assert_eq!(versions[2].as_str(), "0.6.0");
+    }
+
+    #[test]
+    fn test_range_wildcards() {
+        for spec in ["", "*", "latest", "LATEST"] {
+            let range = VersionRange::parse(spec).unwrap();
+            assert!(range.matches("1.20.1"), "{}", spec);
+        }
+    }
+
+    #[test]
+    fn test_range_operators() {
+        let range = VersionRange::parse(">=1.20 <1.22").unwrap();
+        assert!(range.matches("1.20"));
+        assert!(range.matches("1.21.4"));
+        assert!(!range.matches("1.22"));
+        assert!(!range.matches("1.19.2"));
+    }
+
+    #[test]
+    fn test_range_exact_and_equals() {
+        assert!(VersionRange::parse("1.20.1").unwrap().matches("1.20.1"));
+        assert!(!VersionRange::parse("1.20.1").unwrap().matches("1.20.2"));
+        assert!(VersionRange::parse("=1.20.1").unwrap().matches("1.20.1"));
+    }
+
+    #[test]
+    fn test_range_maven_brackets() {
+        let range = VersionRange::parse("[1.4,1.5)").unwrap();
+        assert!(range.matches("1.4"));
+        assert!(range.matches("1.4.9"));
+        assert!(!range.matches("1.5"));
+        assert!(!range.matches("1.3"));
+
+        assert!(VersionRange::parse("(,1.0]").unwrap().matches("0.9"));
+        assert!(VersionRange::parse("(,1.0]").unwrap().matches("1.0"));
+        assert!(!VersionRange::parse("(,1.0]").unwrap().matches("1.0.1"));
+
+        assert!(VersionRange::parse("[2.0,)").unwrap().matches("2.5"));
+        assert!(!VersionRange::parse("[2.0,)").unwrap().matches("1.9"));
+
+        assert!(VersionRange::parse("[1.0]").unwrap().matches("1.0"));
+        assert!(!VersionRange::parse("[1.0]").unwrap().matches("1.0.1"));
+    }
+
+    #[test]
+    fn test_range_union() {
+        let range = VersionRange::parse("[1.5,1.6),[1.7,)").unwrap();
+        assert!(range.matches("1.5.2"));
+        assert!(!range.matches("1.6.1"));
+        assert!(range.matches("1.7.0"));
+    }
+
+    #[test]
+    fn test_range_invalid() {
+        assert!(VersionRange::parse("[1.0,").is_err());
     }
 }
