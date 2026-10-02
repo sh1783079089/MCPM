@@ -18,9 +18,10 @@ pub use config::{
 pub use error::McpmError;
 pub use lockfile::{LockEnvironment, LockReason, LockedMod, Lockfile, LOCKFILE_VERSION};
 pub use registry::{
-    infer_mod_side, select_primary_file, version_matches_environment, version_matches_preferences,
-    Dependency, DependencyKind, FileArtifact, Hashes, MissingRequested, ModVersion, Project,
-    Registry, ResolveConflict, ResolvePlan, ResolveWarning, ResolvedMod,
+    infer_mod_side, select_loader_version, select_primary_file, version_matches_environment,
+    version_matches_preferences, Dependency, DependencyKind, FileArtifact, Hashes, LoaderVersion,
+    LoaderVersionRegistry, MissingRequested, ModVersion, Project, Registry, ResolveConflict,
+    ResolvePlan, ResolveWarning, ResolvedMod,
 };
 pub use version::{compare_versions, ModVersionNumber, VersionRange};
 

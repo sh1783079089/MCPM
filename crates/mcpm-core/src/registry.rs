@@ -1,4 +1,4 @@
-use crate::{LoaderKind, McpmError, ReleaseType, Side, SourceKind};
+use crate::{LoaderKind, McpmError, ReleaseType, Side, SourceKind, VersionRange};
 use async_trait::async_trait;
 
 #[derive(Debug, Clone)]
@@ -59,6 +59,48 @@ pub trait Registry: Send + Sync {
     async fn search_projects(&self, query: &str) -> Result<Vec<Project>, McpmError>;
     async fn get_project(&self, id: &str) -> Result<Project, McpmError>;
     async fn get_versions(&self, project_id: &str) -> Result<Vec<ModVersion>, McpmError>;
+}
+
+#[derive(Debug, Clone)]
+pub struct LoaderVersion {
+    pub version: String,
+    pub stable: bool,
+}
+
+/// Source of available loader versions for a given loader type.
+#[async_trait]
+pub trait LoaderVersionRegistry: Send + Sync {
+    async fn get_loader_versions(
+        &self,
+        loader: LoaderKind,
+        minecraft: &str,
+    ) -> Result<Vec<LoaderVersion>, McpmError>;
+}
+
+/// Selects the highest stable loader version satisfying every constraint.
+///
+/// Falls back to pre-release versions only when no stable version
+/// satisfies the constraints.
+pub fn select_loader_version(
+    candidates: &[LoaderVersion],
+    constraints: &[VersionRange],
+) -> Option<LoaderVersion> {
+    let matches_all = |candidate: &&LoaderVersion| {
+        constraints
+            .iter()
+            .all(|range| range.matches(&candidate.version))
+    };
+
+    let pick_highest = |stable_only: bool| -> Option<LoaderVersion> {
+        candidates
+            .iter()
+            .filter(matches_all)
+            .filter(|c| !stable_only || c.stable)
+            .max_by(|a, b| crate::version::compare_versions(&a.version, &b.version))
+            .cloned()
+    };
+
+    pick_highest(true).or_else(|| pick_highest(false))
 }
 
 pub fn version_matches_environment(
@@ -161,4 +203,50 @@ pub struct ResolveConflict {
     pub conflicting_project_id: String,
     pub conflicting_name: String,
     pub message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::VersionRange;
+
+    fn lv(version: &str, stable: bool) -> LoaderVersion {
+        LoaderVersion {
+            version: version.to_string(),
+            stable,
+        }
+    }
+
+    #[test]
+    fn test_select_loader_version_highest_stable() {
+        let candidates = vec![lv("0.14.0", true), lv("0.15.11", true), lv("0.16.0", false)];
+        let selected = select_loader_version(&candidates, &[]).unwrap();
+        assert_eq!(selected.version, "0.15.11");
+    }
+
+    #[test]
+    fn test_select_loader_version_intersection() {
+        let candidates = vec![lv("0.13.0", true), lv("0.15.11", true), lv("0.16.0", true)];
+        let constraints = vec![
+            VersionRange::parse(">=0.15").unwrap(),
+            VersionRange::parse("<0.16").unwrap(),
+        ];
+        let selected = select_loader_version(&candidates, &constraints).unwrap();
+        assert_eq!(selected.version, "0.15.11");
+    }
+
+    #[test]
+    fn test_select_loader_version_falls_back_to_prerelease() {
+        let candidates = vec![lv("0.16.0", false)];
+        let constraints = vec![VersionRange::parse(">=0.15").unwrap()];
+        let selected = select_loader_version(&candidates, &constraints).unwrap();
+        assert_eq!(selected.version, "0.16.0");
+    }
+
+    #[test]
+    fn test_select_loader_version_no_match() {
+        let candidates = vec![lv("0.13.0", true)];
+        let constraints = vec![VersionRange::parse(">=0.15").unwrap()];
+        assert!(select_loader_version(&candidates, &constraints).is_none());
+    }
 }

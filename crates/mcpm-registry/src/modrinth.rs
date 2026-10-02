@@ -1,13 +1,22 @@
+use std::collections::{HashMap, HashSet};
+
 use async_trait::async_trait;
 use mcpm_core::{
-    Dependency, DependencyKind, FileArtifact, Hashes, LoaderKind, McpmError, ModVersion, Project,
-    Registry, ReleaseType, Side, SourceKind,
+    Dependency, DependencyKind, FileArtifact, Hashes, LoaderKind, LoaderVersion,
+    LoaderVersionRegistry, McpmError, ModVersion, Project, Registry, ReleaseType, Side, SourceKind,
 };
 use reqwest::Client;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
 const MODRINTH_API_BASE: &str = "https://api.modrinth.com/v2";
 const MODRINTH_USER_AGENT: &str = "mcpm/0.1.0 (github.com/mcpm)";
+const FABRIC_LOADER_META: &str = "https://meta.fabricmc.net/v2/versions/loader";
+const QUILT_LOADER_META: &str = "https://meta.quiltmc.org/v3/versions/loader";
+const FORGE_PROMOTIONS: &str =
+    "https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json";
+const NEOFORGE_MAVEN_METADATA: &str =
+    "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
 
 pub struct ModrinthClient {
     client: Client,
@@ -36,6 +45,142 @@ impl ModrinthClient {
         Self {
             client,
             base_url: base_url.to_string(),
+        }
+    }
+
+    async fn get_json<T: DeserializeOwned>(&self, url: &str, what: &str) -> Result<T, McpmError> {
+        let resp = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| McpmError::Registry(format!("{} request failed: {}", what, e)))?;
+        if !resp.status().is_success() {
+            return Err(McpmError::Registry(format!(
+                "{} returned status {}",
+                what,
+                resp.status()
+            )));
+        }
+        resp.json()
+            .await
+            .map_err(|e| McpmError::Registry(format!("failed to parse {}: {}", what, e)))
+    }
+
+    async fn get_text(&self, url: &str, what: &str) -> Result<String, McpmError> {
+        let resp = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| McpmError::Registry(format!("{} request failed: {}", what, e)))?;
+        if !resp.status().is_success() {
+            return Err(McpmError::Registry(format!(
+                "{} returned status {}",
+                what,
+                resp.status()
+            )));
+        }
+        resp.text()
+            .await
+            .map_err(|e| McpmError::Registry(format!("failed to read {}: {}", what, e)))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct FabricLoaderEntry {
+    version: String,
+    #[serde(default)]
+    stable: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct QuiltLoaderEntry {
+    version: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ForgePromotions {
+    #[serde(default)]
+    promos: HashMap<String, String>,
+}
+
+fn extract_xml_versions(xml: &str) -> Vec<String> {
+    let mut versions = Vec::new();
+    let mut rest = xml;
+    while let Some(start) = rest.find("<version>") {
+        let after = &rest[start + "<version>".len()..];
+        match after.find("</version>") {
+            Some(end) => {
+                versions.push(after[..end].trim().to_string());
+                rest = &after[end + "</version>".len()..];
+            }
+            None => break,
+        }
+    }
+    versions
+}
+
+#[async_trait]
+impl LoaderVersionRegistry for ModrinthClient {
+    async fn get_loader_versions(
+        &self,
+        loader: LoaderKind,
+        minecraft: &str,
+    ) -> Result<Vec<LoaderVersion>, McpmError> {
+        match loader {
+            LoaderKind::Fabric => {
+                let entries: Vec<FabricLoaderEntry> = self
+                    .get_json(FABRIC_LOADER_META, "Fabric loader metadata")
+                    .await?;
+                Ok(entries
+                    .into_iter()
+                    .map(|e| LoaderVersion {
+                        version: e.version,
+                        stable: e.stable,
+                    })
+                    .collect())
+            }
+            LoaderKind::Quilt => {
+                let entries: Vec<QuiltLoaderEntry> = self
+                    .get_json(QUILT_LOADER_META, "Quilt loader metadata")
+                    .await?;
+                Ok(entries
+                    .into_iter()
+                    .map(|e| LoaderVersion {
+                        version: e.version,
+                        stable: true,
+                    })
+                    .collect())
+            }
+            LoaderKind::Forge => {
+                let promotions: ForgePromotions =
+                    self.get_json(FORGE_PROMOTIONS, "Forge promotions").await?;
+                let prefix = format!("{}-", minecraft);
+                let mut seen = HashSet::new();
+                let mut versions = Vec::new();
+                for (key, version) in &promotions.promos {
+                    if key.starts_with(&prefix) && seen.insert(version.clone()) {
+                        versions.push(LoaderVersion {
+                            version: version.clone(),
+                            stable: true,
+                        });
+                    }
+                }
+                Ok(versions)
+            }
+            LoaderKind::NeoForge => {
+                let xml = self
+                    .get_text(NEOFORGE_MAVEN_METADATA, "NeoForge maven metadata")
+                    .await?;
+                Ok(extract_xml_versions(&xml)
+                    .into_iter()
+                    .map(|version| LoaderVersion {
+                        stable: !version.contains("beta"),
+                        version,
+                    })
+                    .collect())
+            }
         }
     }
 }
@@ -315,5 +460,17 @@ mod tests {
     fn test_url_encode() {
         assert_eq!(url_encode("sodium"), "sodium");
         assert_eq!(url_encode("create plus"), "create%20plus");
+    }
+
+    #[test]
+    fn test_extract_xml_versions() {
+        let xml = r#"<metadata><versioning><versions>
+            <version>21.0.167</version>
+            <version>21.1.0</version>
+        </versions></versioning></metadata>"#;
+        assert_eq!(
+            extract_xml_versions(xml),
+            vec!["21.0.167".to_string(), "21.1.0".to_string()]
+        );
     }
 }
