@@ -8,9 +8,9 @@ pub use env::{
 use std::collections::{HashMap, VecDeque};
 
 use mcpm_core::{
-    compare_versions, platform_dependencies, DependencyKind, Environment, LoaderKind, LockReason,
-    McpmError, ModEntry, ModVersion, Preferences, Registry, ReleaseType, ResolveConflict,
-    ResolvePlan, ResolveWarning, ResolvedMod,
+    compare_versions, platform_dependencies, CompatibilityConfig, DependencyKind, Environment,
+    LoaderKind, LockReason, McpmError, ModEntry, ModVersion, Preferences, Registry, ReleaseType,
+    ResolveConflict, ResolvePlan, ResolveWarning, ResolvedMod,
 };
 
 fn release_rank(release_type: ReleaseType) -> u8 {
@@ -59,7 +59,26 @@ pub async fn resolve(
     environment: &Environment,
     preferences: &Preferences,
 ) -> Result<ResolvePlan, McpmError> {
-    resolve_impl(registry, mods, environment, preferences, false).await
+    resolve_impl(registry, mods, environment, preferences, false, None).await
+}
+
+/// Like [`resolve`], but applies pack-local compatibility rules.
+pub async fn resolve_with_compat(
+    registry: &dyn Registry,
+    mods: &indexmap::IndexMap<String, ModEntry>,
+    environment: &Environment,
+    preferences: &Preferences,
+    compatibility: Option<&CompatibilityConfig>,
+) -> Result<ResolvePlan, McpmError> {
+    resolve_impl(
+        registry,
+        mods,
+        environment,
+        preferences,
+        false,
+        compatibility,
+    )
+    .await
 }
 
 /// Like [`resolve`], but records requested mods that cannot be resolved
@@ -71,7 +90,26 @@ pub async fn resolve_partial(
     environment: &Environment,
     preferences: &Preferences,
 ) -> Result<ResolvePlan, McpmError> {
-    resolve_impl(registry, mods, environment, preferences, true).await
+    resolve_impl(registry, mods, environment, preferences, true, None).await
+}
+
+/// Like [`resolve_partial`], but applies pack-local compatibility rules.
+pub async fn resolve_partial_with_compat(
+    registry: &dyn Registry,
+    mods: &indexmap::IndexMap<String, ModEntry>,
+    environment: &Environment,
+    preferences: &Preferences,
+    compatibility: Option<&CompatibilityConfig>,
+) -> Result<ResolvePlan, McpmError> {
+    resolve_impl(
+        registry,
+        mods,
+        environment,
+        preferences,
+        true,
+        compatibility,
+    )
+    .await
 }
 
 async fn resolve_impl(
@@ -80,6 +118,7 @@ async fn resolve_impl(
     environment: &Environment,
     preferences: &Preferences,
     collect_missing: bool,
+    compatibility: Option<&CompatibilityConfig>,
 ) -> Result<ResolvePlan, McpmError> {
     let game_version = &environment.minecraft;
     let loader = environment.loader.as_fixed().ok_or_else(|| {
@@ -298,13 +337,20 @@ async fn resolve_impl(
     let success = conflicts.is_empty() && missing.is_empty();
     let resolved_mods: Vec<ResolvedMod> = resolved.into_values().collect();
 
-    Ok(ResolvePlan {
+    let mut plan = ResolvePlan {
         mods: resolved_mods,
         warnings,
         conflicts,
         missing,
+        workarounds: Vec::new(),
         success,
-    })
+    };
+
+    if let Some(compatibility) = compatibility {
+        mcpm_compat::apply_rules(&mut plan, environment, compatibility);
+    }
+
+    Ok(plan)
 }
 
 pub fn plan_to_lockfile(

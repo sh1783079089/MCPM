@@ -76,6 +76,7 @@ cli:
   resolve:
     conflict: "CONFLICT: %{message}"
     warning: "WARNING: %{message}"
+    workaround: "WORKAROUND: %{message}"
     reason_requested: "requested"
     reason_dependency: "dependency"
   common:

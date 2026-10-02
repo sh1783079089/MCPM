@@ -76,6 +76,7 @@ cli:
   resolve:
     conflict: "冲突：%{message}"
     warning: "警告：%{message}"
+    workaround: "变通方案：%{message}"
     reason_requested: "请求"
     reason_dependency: "依赖"
   common:

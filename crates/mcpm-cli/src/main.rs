@@ -168,11 +168,12 @@ async fn resolve_and_install(config: &PackConfig) -> Result<mcpm_core::Lockfile>
         )
     );
 
-    let plan = mcpm_resolver::resolve(
+    let plan = mcpm_resolver::resolve_with_compat(
         &registry,
         &config.mods,
         &config.environment,
         &config.preferences,
+        config.compatibility.as_ref(),
     )
     .await?;
 
@@ -184,6 +185,9 @@ async fn resolve_and_install(config: &PackConfig) -> Result<mcpm_core::Lockfile>
     }
     for warning in &plan.warnings {
         println!("{}", t!("cli.resolve.warning", message = &warning.message));
+    }
+    for workaround in &plan.workarounds {
+        println!("{}", t!("cli.resolve.workaround", message = workaround));
     }
 
     let mcpm_version = env!("CARGO_PKG_VERSION");
@@ -291,6 +295,7 @@ async fn cmd_init(
         },
         preferences: Preferences::default(),
         mods: indexmap::IndexMap::new(),
+        compatibility: None,
     };
 
     save_config(&config)?;
@@ -422,11 +427,12 @@ async fn cmd_add(slugs: Vec<String>) -> Result<()> {
                 );
             }
 
-            let plan = mcpm_resolver::resolve(
+            let plan = mcpm_resolver::resolve_with_compat(
                 &registry,
                 &temp_config.mods,
                 &temp_config.environment,
                 &temp_config.preferences,
+                temp_config.compatibility.as_ref(),
             )
             .await?;
 
@@ -438,6 +444,9 @@ async fn cmd_add(slugs: Vec<String>) -> Result<()> {
             }
             for warning in &plan.warnings {
                 println!("{}", t!("cli.resolve.warning", message = &warning.message));
+            }
+            for workaround in &plan.workarounds {
+                println!("{}", t!("cli.resolve.workaround", message = workaround));
             }
 
             let temp_lock =
@@ -731,6 +740,7 @@ async fn compute_candidates(
         &loaders,
         config.environment.side,
         &config.preferences,
+        config.compatibility.as_ref(),
     )
     .await?;
     Ok(evaluations)

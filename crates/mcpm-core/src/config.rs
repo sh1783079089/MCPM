@@ -11,6 +11,8 @@ pub struct PackConfig {
     pub preferences: Preferences,
     #[serde(default)]
     pub mods: indexmap::IndexMap<String, ModEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<crate::compat::CompatibilityConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,6 +193,7 @@ mod tests {
                 );
                 m
             },
+            compatibility: None,
         };
 
         let toml_str = toml::to_string_pretty(&config).expect("serialize");
@@ -246,6 +249,7 @@ mod tests {
             },
             preferences: Preferences::default(),
             mods: indexmap::IndexMap::new(),
+            compatibility: None,
         };
 
         let toml_str = toml::to_string_pretty(&config).expect("serialize");

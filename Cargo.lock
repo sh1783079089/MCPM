@@ -981,6 +981,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mcpm-compat"
+version = "0.1.0"
+dependencies = [
+ "mcpm-core",
+]
+
+[[package]]
 name = "mcpm-core"
 version = "0.1.0"
 dependencies = [
@@ -1031,6 +1038,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "indexmap",
+ "mcpm-compat",
  "mcpm-core",
  "tokio",
  "tracing",

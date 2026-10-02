@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 mcpm-core = { path = "../mcpm-core" }
+mcpm-compat = { path = "../mcpm-compat" }
 indexmap = "2"
 tracing = "0.1"
 async-trait = "0.1"

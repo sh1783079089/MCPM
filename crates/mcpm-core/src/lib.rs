@@ -1,3 +1,4 @@
+pub mod compat;
 pub mod config;
 pub mod error;
 pub mod lockfile;
@@ -6,6 +7,10 @@ pub mod version;
 
 use serde::{Deserialize, Serialize};
 
+pub use compat::{
+    CompatibilityConfig, LocalConflictRule, ModConstraint, RuleSeverity, Workaround,
+    WorkaroundAction,
+};
 pub use config::{
     DetailedModEntry, Environment, EnvironmentStrategy, LoaderSpec, ModEntry, PackConfig, PackMeta,
     Preferences,

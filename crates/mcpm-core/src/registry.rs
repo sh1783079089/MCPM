@@ -117,6 +117,7 @@ pub struct ResolvePlan {
     pub warnings: Vec<ResolveWarning>,
     pub conflicts: Vec<ResolveConflict>,
     pub missing: Vec<MissingRequested>,
+    pub workarounds: Vec<String>,
     pub success: bool,
 }
 

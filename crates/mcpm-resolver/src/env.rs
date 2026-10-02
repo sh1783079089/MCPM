@@ -1,10 +1,11 @@
 use indexmap::IndexMap;
 use mcpm_core::{
-    Environment, LoaderKind, LoaderSpec, LockReason, McpmError, ModEntry, Preferences, Registry,
-    ReleaseType, ResolveConflict, ResolvePlan, ResolveWarning, Side, VersionRange,
+    CompatibilityConfig, Environment, LoaderKind, LoaderSpec, LockReason, McpmError, ModEntry,
+    Preferences, Registry, ReleaseType, ResolveConflict, ResolvePlan, ResolveWarning, Side,
+    VersionRange,
 };
 
-use crate::resolve_partial;
+use crate::resolve_partial_with_compat;
 
 /// Mainstream Minecraft release versions used to generate candidate
 /// environments, newest first. Eventually this should come from the
@@ -41,6 +42,7 @@ pub fn default_minecraft_candidates(range: Option<&VersionRange>) -> Vec<String>
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn solve_env(
     registry: &dyn Registry,
     mods: &IndexMap<String, ModEntry>,
@@ -48,6 +50,7 @@ pub async fn solve_env(
     loader_candidates: &[LoaderKind],
     side: Side,
     preferences: &Preferences,
+    compatibility: Option<&CompatibilityConfig>,
 ) -> Result<Vec<CandidateEvaluation>, McpmError> {
     let minecraft_versions = default_minecraft_candidates(minecraft_range);
     let loaders: Vec<LoaderKind> = if loader_candidates.is_empty() {
@@ -68,7 +71,14 @@ pub async fn solve_env(
                 loader_version: None,
                 side,
             };
-            let plan = resolve_partial(registry, mods, &environment, preferences).await?;
+            let plan = resolve_partial_with_compat(
+                registry,
+                mods,
+                &environment,
+                preferences,
+                compatibility,
+            )
+            .await?;
 
             let candidate = EnvironmentCandidate {
                 minecraft: mc.clone(),
@@ -290,6 +300,7 @@ mod tests {
             &[LoaderKind::Fabric],
             Side::Both,
             &Preferences::default(),
+            None,
         )
         .await
         .unwrap();
@@ -322,6 +333,7 @@ mod tests {
             &[LoaderKind::Fabric],
             Side::Both,
             &Preferences::default(),
+            None,
         )
         .await
         .unwrap();
