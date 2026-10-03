@@ -280,8 +280,8 @@ mcpm import mods
 | 6b Loader 版本求解 | ✅ 完成 | `select_loader_version` 交集求解，Fabric/Quilt/Forge/NeoForge 版本来源 |
 | 7 社区规则集 | ⬜ 未开始 | `sync-rules` 等 |
 | 8 崩溃报告分析器 | ⬜ 未开始 | `check-crash` |
-| 9 CurseForge 支持 | ⬜ 未开始 | 仅 `SourceKind` 占位 |
-| 10 导入导出与服务端包 | ⬜ 未开始 | mrpack/curseforge/server-pack |
+| 9 CurseForge 支持 | ✅ 完成 | API client、API key 配置、多来源路由、manifest 导入/导出、手动下载说明 |
+| 10 导入导出与服务端包 | ◐ 部分 | CurseForge manifest 已实现；mrpack / server-pack 未实现 |
 | 11 反向导入已有模组 | ✅ 完成 | `import mods`，Modrinth hash 反查，local 跳过 |
 
 ### 已知偏差与后续项
@@ -290,4 +290,7 @@ mcpm import mods
 - 版本选择以 release 优先 + 版本号自然序，尚未按发布时间排序。
 - 环境求解的 loader 版本在探索阶段仍为空（约束需 jar 元数据，安装后才有）。
 - `import mods` 反查优先文件 hash，未命中再按 id/名称搜索；未命中的模组标记 `source = "local"`，resolver 会跳过、不下载、不进入锁文件。
-- 社区规则、崩溃分析、CurseForge、导入导出均待实现。
+- CurseForge：`add`/解析经 `CompositeRegistry` 多来源路由；`import curseforge <file>` / `export curseforge` 可用；API key 读取 `CURSEFORGE_API_KEY` 或用户全局配置。
+- CurseForge 元数据限制：无 sha512（仅 sha1）、无显式 version_number（用 displayName）、无 side 元数据（默认 both）；`downloadUrl` 缺失时锁文件标记 `manual_download`，安装输出手动下载说明。
+- CurseForge 指纹反查（Murmur2）未实现，`import mods` 仍仅反查 Modrinth。
+- 社区规则、崩溃分析、mrpack / server-pack 导入导出待实现。

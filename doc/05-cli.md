@@ -42,8 +42,22 @@ mcpm export server-pack
 
 > 实现状态：
 > 已实现 `solve-env`、`use`、`lock-env`、`un-lock-env`、`update`、`update --allow-loader`、`upgrade-env`、`migrate-loader`、`apply-plan`。
-> 已实现 `import mods`（反向导入现有 `mods/` 目录）。
-> `solve`（固定环境解析计划）尚未单独暴露；`check-crash`、`sync-rules`、mrpack/curseforge 导入导出未实现。
+> 已实现 `import mods`（反向导入现有 `mods/` 目录）、`import curseforge <file>` 与 `export curseforge [--output]`。
+> `solve`（固定环境解析计划）尚未单独暴露；`check-crash`、`sync-rules`、mrpack 导入导出、服务端包未实现。
+
+## CurseForge 工作流
+
+```bash
+mcpm import curseforge manifest.json   # 从 CF 整合包 manifest 导入
+mcpm export curseforge --output manifest.json
+```
+
+行为：
+
+- 需要配置 CurseForge API key：环境变量 `CURSEFORGE_API_KEY`，或用户全局配置（`<config_dir>/mcpm/config.toml` 的 `curseforge_api_key`）。
+- `add` 与解析经 `CompositeRegistry` 跨来源路由（受 `[preferences] source` 约束）。
+- 导入时按 manifest 的 `modLoaders[].id`（如 `forge-47.2.20`）设置加载器与版本。
+- 不可自动下载的文件（`downloadUrl` 为 null 且无备用地址）在锁文件中标记 `manual_download`，安装时输出手动下载说明，不视为失败。
 
 ## 反向导入工作流
 
