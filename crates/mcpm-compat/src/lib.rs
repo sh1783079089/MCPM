@@ -141,6 +141,8 @@ mod tests {
             side: Side::Both,
             reason: LockReason::Requested,
             dependencies: vec![],
+            manual_download: false,
+            website_url: None,
         }
     }
 

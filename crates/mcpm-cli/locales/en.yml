@@ -35,6 +35,8 @@ cli:
     lockfile_written: "Lockfile written to %{path}"
     installed: "  Installed: %{filename}"
     install_error: "  Error installing %{filename}: %{error}"
+    manual_download: "  MANUAL: download %{filename} from %{url} and place it in mods/"
+    manual_download_no_url: "  MANUAL: %{filename} cannot be downloaded automatically; obtain it and place it in mods/"
     complete: "Install complete: %{installed} installed, %{skipped} up-to-date"
     with_errors: "install completed with %{count} error(s)"
   list:

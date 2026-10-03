@@ -43,6 +43,10 @@ pub struct LockedMod {
     pub reason: LockReason,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependencies: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub manual_download: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub website_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,6 +100,8 @@ mod tests {
             side: Side::Both,
             reason: LockReason::Requested,
             dependencies: vec![],
+            manual_download: false,
+            website_url: None,
         });
 
         let json = serde_json::to_string_pretty(&lockfile).expect("serialize");
@@ -135,6 +141,8 @@ mod tests {
             side: Side::Both,
             reason: LockReason::Requested,
             dependencies: vec![],
+            manual_download: false,
+            website_url: None,
         });
 
         assert!(lockfile.find_mod_by_project_id("AANobbMI").is_some());

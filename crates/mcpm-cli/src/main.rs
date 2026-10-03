@@ -280,6 +280,15 @@ async fn run_installer(lockfile: &mcpm_core::Lockfile) -> Result<()> {
     for f in &result.installed {
         println!("{}", t!("cli.install.installed", filename = f));
     }
+    for (f, url) in &result.manual {
+        match url {
+            Some(url) => println!(
+                "{}",
+                t!("cli.install.manual_download", filename = f, url = url)
+            ),
+            None => println!("{}", t!("cli.install.manual_download_no_url", filename = f)),
+        }
+    }
     for (f, e) in &result.errors {
         eprintln!(
             "{}",

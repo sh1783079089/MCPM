@@ -193,6 +193,10 @@ pub struct ResolvedMod {
     pub side: Side,
     pub reason: crate::lockfile::LockReason,
     pub dependencies: Vec<String>,
+    #[serde(default)]
+    pub manual_download: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub website_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

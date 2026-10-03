@@ -35,6 +35,8 @@ cli:
     lockfile_written: "Lockfile 已写入 %{path}"
     installed: "  已安装：%{filename}"
     install_error: "  安装 %{filename} 失败：%{error}"
+    manual_download: "  手动下载：请从 %{url} 下载 %{filename} 并放入 mods/"
+    manual_download_no_url: "  手动下载：%{filename} 无法自动下载，请自行获取并放入 mods/"
     complete: "安装完成：%{installed} 已安装，%{skipped} 已是最新"
     with_errors: "安装完成，但有 %{count} 个错误"
   list:

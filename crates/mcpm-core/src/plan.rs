@@ -85,6 +85,8 @@ pub fn resolved_to_locked(r: &ResolvedMod) -> LockedMod {
         side: r.side,
         reason: r.reason,
         dependencies: r.dependencies.clone(),
+        manual_download: r.manual_download,
+        website_url: r.website_url.clone(),
     }
 }
 
@@ -110,6 +112,8 @@ mod tests {
             side: Side::Both,
             reason: LockReason::Requested,
             dependencies: vec![],
+            manual_download: false,
+            website_url: None,
         }
     }
 
@@ -130,6 +134,8 @@ mod tests {
             side: Side::Both,
             reason: LockReason::Requested,
             dependencies: vec![],
+            manual_download: false,
+            website_url: None,
         }
     }
 

@@ -324,6 +324,8 @@ async fn resolve_impl(
             side: mcpm_core::infer_mod_side(&project.client_side, &project.server_side),
             reason: item.reason,
             dependencies: dep_project_ids,
+            manual_download: file.url.is_empty(),
+            website_url: project.website_url.clone(),
         };
 
         resolved.insert(project.id.clone(), resolved_mod);
@@ -956,6 +958,8 @@ mod tests {
             side: Side::Both,
             reason: LockReason::Requested,
             dependencies: vec![],
+            manual_download: false,
+            website_url: None,
         }
     }
 
@@ -996,6 +1000,8 @@ mod tests {
             side: Side::Both,
             reason: LockReason::Requested,
             dependencies: vec![],
+            manual_download: false,
+            website_url: None,
         };
         plan.mods.push(sodium.clone());
         sodium.project_id = "lithium-id".to_string();

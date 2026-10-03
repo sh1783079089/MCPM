@@ -21,6 +21,7 @@ pub struct InstallState {
 pub struct InstallResult {
     pub installed: Vec<String>,
     pub skipped: Vec<String>,
+    pub manual: Vec<(String, Option<String>)>,
     pub errors: Vec<(String, String)>,
 }
 
@@ -60,6 +61,7 @@ impl Installer {
 
         let mut installed = Vec::new();
         let mut skipped = Vec::new();
+        let mut manual = Vec::new();
         let mut errors = Vec::new();
 
         let total = lockfile.mods.len();
@@ -73,6 +75,13 @@ impl Installer {
 
         for m in &lockfile.mods {
             pb.set_message(m.filename.clone());
+
+            if m.manual_download || m.url.is_empty() {
+                manual.push((m.filename.clone(), m.website_url.clone()));
+                pb.inc(1);
+                continue;
+            }
+
             match self.install_mod(m).await {
                 Ok(was_downloaded) => {
                     if was_downloaded {
@@ -99,6 +108,7 @@ impl Installer {
         Ok(InstallResult {
             installed,
             skipped,
+            manual,
             errors,
         })
     }
@@ -292,5 +302,62 @@ impl Installer {
         let state: InstallState = serde_json::from_str(&data)
             .map_err(|e| McpmError::Install(format!("failed to parse state: {}", e)))?;
         Ok(Some(state))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mcpm_core::{
+        LockEnvironment, LockReason, LockedMod, Lockfile, ReleaseType, Side, SourceKind,
+    };
+
+    fn manual_mod(filename: &str) -> LockedMod {
+        LockedMod {
+            name: "Manual Mod".to_string(),
+            source: SourceKind::CurseForge,
+            project_id: "42".to_string(),
+            slug: None,
+            version_id: "100".to_string(),
+            version_number: "1.0.0".to_string(),
+            version_type: Some(ReleaseType::Release),
+            filename: filename.to_string(),
+            url: String::new(),
+            sha512: None,
+            sha1: None,
+            size: None,
+            side: Side::Both,
+            reason: LockReason::Requested,
+            dependencies: vec![],
+            manual_download: true,
+            website_url: Some("https://www.curseforge.com/minecraft/mc-mods/manual".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_manual_download_mod_is_skipped_not_failed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let installer = Installer::new(dir.path()).expect("installer");
+
+        let lockfile = Lockfile::new(
+            "0.1.0",
+            LockEnvironment {
+                minecraft: "1.20.1".to_string(),
+                loader: mcpm_core::LoaderKind::Forge,
+                loader_version: None,
+                side: Side::Both,
+            },
+        );
+        let mut lockfile = lockfile;
+        lockfile.mods.push(manual_mod("manual-mod-1.0.0.jar"));
+
+        let result = installer.install(&lockfile).await.expect("install");
+
+        assert!(result.installed.is_empty());
+        assert!(result.errors.is_empty());
+        assert_eq!(result.manual.len(), 1);
+        assert_eq!(result.manual[0].0, "manual-mod-1.0.0.jar");
+        assert!(result.manual[0].1.is_some());
+        assert!(!installer.mods_dir().join("manual-mod-1.0.0.jar").exists());
     }
 }
