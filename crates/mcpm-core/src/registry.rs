@@ -11,6 +11,7 @@ pub struct Project {
     pub source: SourceKind,
     pub client_side: Side,
     pub server_side: Side,
+    pub website_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]

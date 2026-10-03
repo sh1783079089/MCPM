@@ -412,6 +412,7 @@ impl Registry for ModrinthClient {
                 source: SourceKind::Modrinth,
                 client_side: parse_side(h.client_side.as_deref()),
                 server_side: parse_side(h.server_side.as_deref()),
+                website_url: None,
             })
             .collect())
     }
@@ -440,6 +441,7 @@ impl Registry for ModrinthClient {
             source: SourceKind::Modrinth,
             client_side: parse_side(project.client_side.as_deref()),
             server_side: parse_side(project.server_side.as_deref()),
+            website_url: None,
         })
     }
 

@@ -5,6 +5,7 @@ pub mod hash;
 pub mod lockfile;
 pub mod plan;
 pub mod registry;
+pub mod userconfig;
 pub mod version;
 
 use serde::{Deserialize, Serialize};

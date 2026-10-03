@@ -243,6 +243,7 @@ mod tests {
             source: SourceKind::Modrinth,
             client_side: Side::Both,
             server_side: Side::Both,
+            website_url: None,
         }
     }
 
