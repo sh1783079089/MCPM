@@ -12,7 +12,8 @@ use mcpm_core::{
     compare_versions, platform_dependencies, select_loader_version, CompatibilityConfig,
     DependencyKind, Environment, LoaderKind, LoaderVersionRegistry, LockReason, Lockfile,
     McpmError, ModEntry, ModVersion, PlanAction, Preferences, Registry, ReleaseType,
-    ResolveConflict, ResolvePlan, ResolveWarning, ResolvedMod, UpdatePlan, VersionRange,
+    ResolveConflict, ResolvePlan, ResolveWarning, ResolvedMod, SourceKind, UpdatePlan,
+    VersionRange,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,6 +155,14 @@ async fn resolve_impl(
     let mut queue: VecDeque<QueueItem> = VecDeque::new();
 
     for (name, entry) in mods {
+        if entry.source() == Some(SourceKind::Local) {
+            warnings.push(ResolveWarning {
+                project_id: String::new(),
+                name: name.clone(),
+                message: format!("local mod '{}' is not managed by mcpm", name),
+            });
+            continue;
+        }
         queue.push_back(QueueItem {
             name: name.clone(),
             project_id: entry.project_id().map(|s| s.to_string()),
@@ -983,5 +992,35 @@ mod tests {
         assert_eq!(installed, 1);
         assert_eq!(updated, 1);
         assert_eq!(removed, 1);
+    }
+
+    #[tokio::test]
+    async fn test_local_mod_is_skipped() {
+        let mut reg = MockRegistry::new();
+        reg.add_project(make_project("P7dR8mSH", "fabric-api", "Fabric API"));
+        reg.add_version(
+            "P7dR8mSH",
+            make_version("P7dR8mSH", "0.100.0", &["1.20.1"], &[LoaderKind::Fabric]),
+        );
+
+        let mut mods = indexmap::IndexMap::new();
+        mods.insert(
+            "my-local-mod".to_string(),
+            ModEntry::Detailed(DetailedModEntry {
+                version: Some("1.0.0".to_string()),
+                source: Some(SourceKind::Local),
+                side: None,
+                project_id: None,
+            }),
+        );
+
+        let env = make_env("1.20.1", LoaderKind::Fabric);
+        let plan = resolve(&reg, &mods, &env, &make_prefs()).await.unwrap();
+
+        assert!(plan.success);
+        assert_eq!(plan.mods.len(), 1);
+        assert!(plan.mods.iter().all(|m| m.project_id != "my-local-mod"));
+        assert_eq!(plan.warnings.len(), 1);
+        assert!(plan.warnings[0].message.contains("local"));
     }
 }

@@ -10,3 +10,6 @@ toml = "0.8"
 indexmap = { version = "2", features = ["serde"] }
 thiserror = "2"
 async-trait = "0.1"
+sha2 = "0.10"
+sha1 = "0.10"
+hex = "0.4"

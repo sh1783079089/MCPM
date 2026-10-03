@@ -1,6 +1,7 @@
 pub mod compat;
 pub mod config;
 pub mod error;
+pub mod hash;
 pub mod lockfile;
 pub mod plan;
 pub mod registry;
