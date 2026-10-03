@@ -282,11 +282,12 @@ mcpm import mods
 | 8 崩溃报告分析器 | ⬜ 未开始 | `check-crash` |
 | 9 CurseForge 支持 | ⬜ 未开始 | 仅 `SourceKind` 占位 |
 | 10 导入导出与服务端包 | ⬜ 未开始 | mrpack/curseforge/server-pack |
-| 11 反向导入已有模组 | ⬜ 未开始 | `import mods` |
+| 11 反向导入已有模组 | ✅ 完成 | `import mods`，Modrinth hash 反查，local 跳过 |
 
 ### 已知偏差与后续项
 
 - `add` 目前取搜索首项，无交互选择。
 - 版本选择以 release 优先 + 版本号自然序，尚未按发布时间排序。
 - 环境求解的 loader 版本在探索阶段仍为空（约束需 jar 元数据，安装后才有）。
-- 社区规则、崩溃分析、CurseForge、导入导出、反向导入均待实现。
+- `import mods` 反查优先文件 hash，未命中再按 id/名称搜索；未命中的模组标记 `source = "local"`，resolver 会跳过、不下载、不进入锁文件。
+- 社区规则、崩溃分析、CurseForge、导入导出均待实现。

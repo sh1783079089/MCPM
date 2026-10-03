@@ -42,7 +42,25 @@ mcpm export server-pack
 
 > 实现状态：
 > 已实现 `solve-env`、`use`、`lock-env`、`un-lock-env`、`update`、`update --allow-loader`、`upgrade-env`、`migrate-loader`、`apply-plan`。
-> `solve`（固定环境解析计划）尚未单独暴露；`check-crash`、`sync-rules`、导入导出系列未实现。
+> 已实现 `import mods`（反向导入现有 `mods/` 目录）。
+> `solve`（固定环境解析计划）尚未单独暴露；`check-crash`、`sync-rules`、mrpack/curseforge 导入导出未实现。
+
+## 反向导入工作流
+
+```bash
+mcpm import mods --dry-run   # 预览
+mcpm import mods             # 默认跳过已存在
+mcpm import mods --overwrite # 覆盖已存在条目
+```
+
+行为：
+
+- 扫描 `mods/` 下所有 `.jar`，解析加载器元数据。
+- 优先用文件 hash 在 Modrinth 精确反查版本，未命中再按 mod id / 名称搜索。
+- 命中的写入 `source = "modrinth"`、精确版本、`project_id` 与 `side`。
+- 未命中的写入 `source = "local"` 并警告；resolver 会跳过这类模组，不下载、不进入锁文件。
+- 默认跳过 `mcpm.toml` 中已存在的条目，`--overwrite` 才会覆盖。
+- 需先存在 `mcpm.toml`（否则提示先 `mcpm init`）。
 
 ## 探索工作流
 
