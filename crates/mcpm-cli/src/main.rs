@@ -14,7 +14,12 @@ use mcpm_core::{
     Preferences, Registry, Side, VersionRange,
 };
 use mcpm_installer::Installer;
-use mcpm_registry::ModrinthClient;
+use mcpm_registry::{CompositeRegistry, CurseForgeClient, ModrinthClient};
+
+fn build_registry() -> CompositeRegistry {
+    let curseforge = mcpm_core::userconfig::curseforge_api_key().map(CurseForgeClient::new);
+    CompositeRegistry::new(ModrinthClient::new(), curseforge)
+}
 
 #[derive(Parser)]
 #[command(name = "mcpm", version)]
@@ -195,7 +200,7 @@ fn save_lockfile(lockfile: &mcpm_core::Lockfile) -> Result<()> {
 }
 
 async fn resolve_and_install(config: &PackConfig) -> Result<mcpm_core::Lockfile> {
-    let registry = ModrinthClient::new();
+    let registry = build_registry();
     let game_version = config.environment.minecraft.clone();
     let loader = config
         .environment
@@ -372,9 +377,9 @@ async fn cmd_add(slugs: Vec<String>) -> Result<()> {
         .as_fixed()
         .ok_or_else(|| anyhow::anyhow!("{}", t!("cli.error.loader_not_fixed")))?;
     let game_version = config.environment.minecraft.clone();
-    let registry = ModrinthClient::new();
+    let registry = build_registry();
 
-    let mut added: Vec<(String, String)> = Vec::new();
+    let mut added: Vec<(String, String, mcpm_core::SourceKind, Option<String>)> = Vec::new();
 
     for slug in &slugs {
         if config.mods.contains_key(slug) {
@@ -384,19 +389,23 @@ async fn cmd_add(slugs: Vec<String>) -> Result<()> {
         println!("{}", t!("cli.add.searching", slug = slug));
         let results = registry.search_projects(slug).await?;
 
-        if results.is_empty() {
-            anyhow::bail!("{}", t!("cli.add.no_results", slug = slug));
-        }
+        let best = results
+            .iter()
+            .find(|p| config.preferences.source.contains(&p.source));
 
-        let best = &results[0];
-        let project = registry.get_project(&best.id).await?;
+        let best = match best {
+            Some(best) => best,
+            None => anyhow::bail!("{}", t!("cli.add.no_results", slug = slug)),
+        };
+        let source = best.source;
+        let project = registry.get_project(source, &best.id).await?;
 
         println!(
             "{}",
             t!("cli.add.found", title = &project.title, id = &project.id)
         );
 
-        let versions = registry.get_versions(&project.id).await?;
+        let versions = registry.get_versions(source, &project.id).await?;
         let compatible: Vec<_> = versions
             .iter()
             .filter(|v| {
@@ -425,6 +434,7 @@ async fn cmd_add(slugs: Vec<String>) -> Result<()> {
             loader,
             &config.preferences,
             None,
+            None,
         )
         .unwrap_or(compatible[0]);
 
@@ -437,9 +447,20 @@ async fn cmd_add(slugs: Vec<String>) -> Result<()> {
             )
         );
 
+        let file_id = if source == mcpm_core::SourceKind::CurseForge {
+            Some(best_version.id.clone())
+        } else {
+            None
+        };
+
         let entry = ModEntry::Detailed(DetailedModEntry {
-            version: Some("latest".to_string()),
-            source: Some(mcpm_core::SourceKind::Modrinth),
+            version: Some(if source == mcpm_core::SourceKind::CurseForge {
+                best_version.version_number.clone()
+            } else {
+                "latest".to_string()
+            }),
+            file_id: file_id.clone(),
+            source: Some(source),
             side: None,
             project_id: Some(project.id.clone()),
         });
@@ -447,7 +468,7 @@ async fn cmd_add(slugs: Vec<String>) -> Result<()> {
         let display_name = project.slug.as_deref().unwrap_or(slug).to_string();
         config.mods.insert(display_name.clone(), entry);
         println!("{}", t!("cli.add.added", title = &project.title));
-        added.push((display_name, project.id.clone()));
+        added.push((display_name, project.id.clone(), source, file_id));
     }
 
     save_config(&config)?;
@@ -459,12 +480,13 @@ async fn cmd_add(slugs: Vec<String>) -> Result<()> {
         let new_entries = {
             let mut temp_config = config.clone();
             temp_config.mods.clear();
-            for (display_name, project_id) in &added {
+            for (display_name, project_id, source, file_id) in &added {
                 temp_config.mods.insert(
                     display_name.clone(),
                     ModEntry::Detailed(DetailedModEntry {
                         version: Some("latest".to_string()),
-                        source: Some(mcpm_core::SourceKind::Modrinth),
+                        file_id: file_id.clone(),
+                        source: Some(*source),
                         side: None,
                         project_id: Some(project_id.clone()),
                     }),
@@ -848,7 +870,7 @@ fn explore_loaders(config: &PackConfig) -> Vec<LoaderKind> {
 async fn compute_candidates(
     config: &PackConfig,
 ) -> Result<Vec<mcpm_resolver::CandidateEvaluation>> {
-    let registry = ModrinthClient::new();
+    let registry = build_registry();
     let range = VersionRange::parse(&config.environment.minecraft).ok();
     let loaders = explore_loaders(config);
     let evaluations = mcpm_resolver::solve_env(
@@ -1104,7 +1126,7 @@ async fn cmd_update(allow_loader: bool) -> Result<()> {
     let config = load_config()?;
     let old =
         load_lockfile()?.ok_or_else(|| anyhow::anyhow!("{}", t!("cli.update.no_lockfile")))?;
-    let registry = ModrinthClient::new();
+    let registry = build_registry();
     let mode = if allow_loader {
         mcpm_resolver::UpdateMode::AllowLoader
     } else {
@@ -1119,7 +1141,7 @@ async fn cmd_update(allow_loader: bool) -> Result<()> {
         &old,
         config.environment.clone(),
         mode,
-        Some(&registry as &dyn mcpm_core::LoaderVersionRegistry),
+        Some(registry.modrinth() as &dyn mcpm_core::LoaderVersionRegistry),
         std::path::Path::new("mods"),
     )
     .await?;
@@ -1139,7 +1161,7 @@ async fn cmd_upgrade_env(target_minecraft: String) -> Result<()> {
     let mut config = load_config()?;
     let old =
         load_lockfile()?.ok_or_else(|| anyhow::anyhow!("{}", t!("cli.update.no_lockfile")))?;
-    let registry = ModrinthClient::new();
+    let registry = build_registry();
 
     let mut target = config.environment.clone();
     target.minecraft = target_minecraft.clone();
@@ -1152,7 +1174,7 @@ async fn cmd_upgrade_env(target_minecraft: String) -> Result<()> {
         &old,
         target,
         mcpm_resolver::UpdateMode::Explicit,
-        Some(&registry as &dyn mcpm_core::LoaderVersionRegistry),
+        Some(registry.modrinth() as &dyn mcpm_core::LoaderVersionRegistry),
         std::path::Path::new("mods"),
     )
     .await?;
@@ -1173,7 +1195,7 @@ async fn cmd_migrate_loader(to: String) -> Result<()> {
     let mut config = load_config()?;
     let old =
         load_lockfile()?.ok_or_else(|| anyhow::anyhow!("{}", t!("cli.update.no_lockfile")))?;
-    let registry = ModrinthClient::new();
+    let registry = build_registry();
 
     let mut target = config.environment.clone();
     target.loader = LoaderSpec::Fixed(target_loader);
@@ -1187,7 +1209,7 @@ async fn cmd_migrate_loader(to: String) -> Result<()> {
         &old,
         target,
         mcpm_resolver::UpdateMode::Explicit,
-        Some(&registry as &dyn mcpm_core::LoaderVersionRegistry),
+        Some(registry.modrinth() as &dyn mcpm_core::LoaderVersionRegistry),
         std::path::Path::new("mods"),
     )
     .await?;
@@ -1259,7 +1281,10 @@ async fn lookup_mod(
     let mut found: Option<(String, String, String)> = None;
     if let Some(ref hash) = sha512 {
         if let Some(version) = registry.get_version_by_hash(hash, "sha512").await? {
-            if let Ok(project) = registry.get_project(&version.project_id).await {
+            if let Ok(project) = registry
+                .get_project(mcpm_core::SourceKind::Modrinth, &version.project_id)
+                .await
+            {
                 found = Some((
                     project.id,
                     project.slug.unwrap_or(metadata.id.clone()),
@@ -1271,7 +1296,10 @@ async fn lookup_mod(
     if found.is_none() {
         if let Some(ref hash) = sha1 {
             if let Some(version) = registry.get_version_by_hash(hash, "sha1").await? {
-                if let Ok(project) = registry.get_project(&version.project_id).await {
+                if let Ok(project) = registry
+                    .get_project(mcpm_core::SourceKind::Modrinth, &version.project_id)
+                    .await
+                {
                     found = Some((
                         project.id,
                         project.slug.unwrap_or(metadata.id.clone()),
@@ -1283,7 +1311,10 @@ async fn lookup_mod(
     }
 
     if found.is_none() {
-        if let Ok(project) = registry.get_project(&metadata.id).await {
+        if let Ok(project) = registry
+            .get_project(mcpm_core::SourceKind::Modrinth, &metadata.id)
+            .await
+        {
             found = Some((
                 project.id,
                 project.slug.unwrap_or(metadata.id.clone()),
@@ -1325,6 +1356,7 @@ async fn lookup_mod(
             key,
             entry: ModEntry::Detailed(DetailedModEntry {
                 version: Some(version),
+                file_id: None,
                 source: Some(mcpm_core::SourceKind::Modrinth),
                 side,
                 project_id: Some(project_id),
@@ -1335,6 +1367,7 @@ async fn lookup_mod(
             key: metadata.id.clone(),
             entry: ModEntry::Detailed(DetailedModEntry {
                 version: metadata.version.clone(),
+                file_id: None,
                 source: Some(mcpm_core::SourceKind::Local),
                 side,
                 project_id: None,
@@ -1562,6 +1595,7 @@ mod tests {
             key: key.to_string(),
             entry: ModEntry::Detailed(DetailedModEntry {
                 version: Some("1.0.0".to_string()),
+                file_id: None,
                 source: Some(mcpm_core::SourceKind::Modrinth),
                 side: None,
                 project_id: Some("abc".to_string()),

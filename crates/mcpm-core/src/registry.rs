@@ -59,8 +59,12 @@ pub enum DependencyKind {
 #[async_trait]
 pub trait Registry: Send + Sync {
     async fn search_projects(&self, query: &str) -> Result<Vec<Project>, McpmError>;
-    async fn get_project(&self, id: &str) -> Result<Project, McpmError>;
-    async fn get_versions(&self, project_id: &str) -> Result<Vec<ModVersion>, McpmError>;
+    async fn get_project(&self, source: SourceKind, id: &str) -> Result<Project, McpmError>;
+    async fn get_versions(
+        &self,
+        source: SourceKind,
+        project_id: &str,
+    ) -> Result<Vec<ModVersion>, McpmError>;
 }
 
 #[derive(Debug, Clone)]

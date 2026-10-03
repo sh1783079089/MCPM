@@ -417,7 +417,13 @@ impl Registry for ModrinthClient {
             .collect())
     }
 
-    async fn get_project(&self, id: &str) -> Result<Project, McpmError> {
+    async fn get_project(&self, source: SourceKind, id: &str) -> Result<Project, McpmError> {
+        if source != SourceKind::Modrinth {
+            return Err(McpmError::Registry(format!(
+                "Modrinth client cannot serve source '{}'",
+                source
+            )));
+        }
         let url = format!("{}/project/{}", self.base_url, id);
         let resp =
             self.client.get(&url).send().await.map_err(|e| {
@@ -445,7 +451,17 @@ impl Registry for ModrinthClient {
         })
     }
 
-    async fn get_versions(&self, project_id: &str) -> Result<Vec<ModVersion>, McpmError> {
+    async fn get_versions(
+        &self,
+        source: SourceKind,
+        project_id: &str,
+    ) -> Result<Vec<ModVersion>, McpmError> {
+        if source != SourceKind::Modrinth {
+            return Err(McpmError::Registry(format!(
+                "Modrinth client cannot serve source '{}'",
+                source
+            )));
+        }
         let url = format!("{}/project/{}/version", self.base_url, project_id);
         let resp =
             self.client.get(&url).send().await.map_err(|e| {

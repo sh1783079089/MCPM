@@ -106,6 +106,8 @@ pub struct DetailedModEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<SourceKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub side: Option<Side>,
@@ -125,6 +127,13 @@ impl ModEntry {
         match self {
             ModEntry::Simple(_) => None,
             ModEntry::Detailed(d) => d.project_id.as_deref(),
+        }
+    }
+
+    pub fn file_id(&self) -> Option<&str> {
+        match self {
+            ModEntry::Simple(_) => None,
+            ModEntry::Detailed(d) => d.file_id.as_deref(),
         }
     }
 
@@ -182,6 +191,7 @@ mod tests {
                     "sodium".to_string(),
                     ModEntry::Detailed(DetailedModEntry {
                         version: Some("latest".to_string()),
+                        file_id: None,
                         source: Some(SourceKind::Modrinth),
                         side: None,
                         project_id: Some("AANobbMI".to_string()),
@@ -221,6 +231,7 @@ mod tests {
     fn test_detailed_mod_entry() {
         let entry = ModEntry::Detailed(DetailedModEntry {
             version: Some("1.0.0".to_string()),
+            file_id: None,
             source: Some(SourceKind::Modrinth),
             side: Some(Side::Client),
             project_id: Some("abc123".to_string()),

@@ -274,13 +274,29 @@ impl Registry for CurseForgeClient {
         Ok(response.data.into_iter().map(convert_project).collect())
     }
 
-    async fn get_project(&self, id: &str) -> Result<Project, McpmError> {
+    async fn get_project(&self, source: SourceKind, id: &str) -> Result<Project, McpmError> {
+        if source != SourceKind::CurseForge {
+            return Err(McpmError::Registry(format!(
+                "CurseForge client cannot serve source '{}'",
+                source
+            )));
+        }
         let path = format!("/mods/{}", id);
         let response: ApiResponse<CfProject> = self.get_json(&path, "project").await?;
         Ok(convert_project(response.data))
     }
 
-    async fn get_versions(&self, project_id: &str) -> Result<Vec<ModVersion>, McpmError> {
+    async fn get_versions(
+        &self,
+        source: SourceKind,
+        project_id: &str,
+    ) -> Result<Vec<ModVersion>, McpmError> {
+        if source != SourceKind::CurseForge {
+            return Err(McpmError::Registry(format!(
+                "CurseForge client cannot serve source '{}'",
+                source
+            )));
+        }
         let path = format!("/mods/{}/files?pageSize=50", project_id);
         let response: ApiResponse<Vec<CfFile>> = self.get_json(&path, "files").await?;
         Ok(response.data.into_iter().map(convert_file).collect())
@@ -410,7 +426,10 @@ mod tests {
 
         let client = CurseForgeClient::with_base_url("test-key", &server.uri());
 
-        let project = client.get_project("238222").await.unwrap();
+        let project = client
+            .get_project(SourceKind::CurseForge, "238222")
+            .await
+            .unwrap();
         assert_eq!(project.title, "Just Enough Items");
         assert_eq!(project.source, SourceKind::CurseForge);
         assert_eq!(
@@ -418,7 +437,10 @@ mod tests {
             Some("https://www.curseforge.com/minecraft/mc-mods/jei")
         );
 
-        let versions = client.get_versions("238222").await.unwrap();
+        let versions = client
+            .get_versions(SourceKind::CurseForge, "238222")
+            .await
+            .unwrap();
         assert_eq!(versions.len(), 1);
         assert_eq!(versions[0].id, "5000000");
         assert_eq!(versions[0].loaders, vec![LoaderKind::Forge]);

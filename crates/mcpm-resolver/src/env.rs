@@ -222,14 +222,18 @@ mod tests {
                 .unwrap_or_default())
         }
 
-        async fn get_project(&self, id: &str) -> Result<Project, McpmError> {
+        async fn get_project(&self, _source: SourceKind, id: &str) -> Result<Project, McpmError> {
             self.projects
                 .get(id)
                 .cloned()
                 .ok_or_else(|| McpmError::ProjectNotFound(id.to_string()))
         }
 
-        async fn get_versions(&self, project_id: &str) -> Result<Vec<ModVersion>, McpmError> {
+        async fn get_versions(
+            &self,
+            _source: SourceKind,
+            project_id: &str,
+        ) -> Result<Vec<ModVersion>, McpmError> {
             Ok(self.versions.get(project_id).cloned().unwrap_or_default())
         }
     }

@@ -42,7 +42,16 @@ pub fn select_best_version<'a>(
     loader: LoaderKind,
     preferences: &Preferences,
     pin: Option<&str>,
+    file_id: Option<&str>,
 ) -> Option<&'a ModVersion> {
+    if let Some(file_id) = file_id {
+        if !file_id.is_empty() {
+            if let Some(pinned) = versions.iter().find(|v| v.id == file_id) {
+                return Some(pinned);
+            }
+        }
+    }
+
     let mut candidates: Vec<&ModVersion> = versions
         .iter()
         .filter(|v| {
@@ -147,9 +156,11 @@ async fn resolve_impl(
 
     struct QueueItem {
         name: String,
+        source: SourceKind,
         project_id: Option<String>,
         reason: LockReason,
         version: Option<String>,
+        file_id: Option<String>,
     }
 
     let mut queue: VecDeque<QueueItem> = VecDeque::new();
@@ -165,24 +176,31 @@ async fn resolve_impl(
         }
         queue.push_back(QueueItem {
             name: name.clone(),
+            source: entry.source().unwrap_or(SourceKind::Modrinth),
             project_id: entry.project_id().map(|s| s.to_string()),
             reason: LockReason::Requested,
             version: Some(entry.version().to_string()),
+            file_id: entry.file_id().map(|s| s.to_string()),
         });
     }
 
     for (slug, project_id) in platform_dependencies(loader) {
         queue.push_back(QueueItem {
             name: slug.to_string(),
+            source: SourceKind::Modrinth,
             project_id: Some(project_id.to_string()),
             reason: LockReason::Dependency,
             version: None,
+            file_id: None,
         });
     }
 
     while let Some(item) = queue.pop_front() {
-        let project = if let Some(ref project_id) = item.project_id {
-            registry.get_project(project_id).await?
+        let (project, resolved_source) = if let Some(ref project_id) = item.project_id {
+            (
+                registry.get_project(item.source, project_id).await?,
+                item.source,
+            )
         } else {
             let results = registry.search_projects(&item.name).await?;
             if results.is_empty() {
@@ -196,9 +214,11 @@ async fn resolve_impl(
                 }
                 return Err(McpmError::SearchNoResults(item.name.clone()));
             }
-            let best = &results[0];
-            registry.get_project(&best.id).await?
+            let best = results[0].clone();
+            let source = best.source;
+            (registry.get_project(source, &best.id).await?, source)
         };
+        let project_source = resolved_source;
 
         if resolved.contains_key(&project.id) {
             continue;
@@ -233,13 +253,14 @@ async fn resolve_impl(
             continue;
         }
 
-        let versions = registry.get_versions(&project.id).await?;
+        let versions = registry.get_versions(project_source, &project.id).await?;
         let best_version = select_best_version(
             &versions,
             game_version,
             loader,
             preferences,
             item.version.as_deref(),
+            item.file_id.as_deref(),
         );
 
         let best_version = match best_version {
@@ -314,9 +335,11 @@ async fn resolve_impl(
                         if !resolved.contains_key(dep_project_id) {
                             queue.push_back(QueueItem {
                                 name: dep_project_id.clone(),
+                                source: project_source,
                                 project_id: Some(dep_project_id.clone()),
                                 reason: LockReason::Dependency,
                                 version: dep.version_id.clone(),
+                                file_id: None,
                             });
                         }
                     }
@@ -564,14 +587,18 @@ mod tests {
             Ok(self.search_results.get(&key).cloned().unwrap_or_default())
         }
 
-        async fn get_project(&self, id: &str) -> Result<Project, McpmError> {
+        async fn get_project(&self, _source: SourceKind, id: &str) -> Result<Project, McpmError> {
             self.projects
                 .get(id)
                 .cloned()
                 .ok_or_else(|| McpmError::ProjectNotFound(id.to_string()))
         }
 
-        async fn get_versions(&self, project_id: &str) -> Result<Vec<ModVersion>, McpmError> {
+        async fn get_versions(
+            &self,
+            _source: SourceKind,
+            project_id: &str,
+        ) -> Result<Vec<ModVersion>, McpmError> {
             Ok(self.versions.get(project_id).cloned().unwrap_or_default())
         }
     }
@@ -828,6 +855,7 @@ mod tests {
             "fabric-api".to_string(),
             ModEntry::Detailed(mcpm_core::DetailedModEntry {
                 version: Some("latest".to_string()),
+                file_id: None,
                 source: Some(mcpm_core::SourceKind::Modrinth),
                 side: None,
                 project_id: Some("P7dR8mSH".to_string()),
@@ -1009,6 +1037,7 @@ mod tests {
             "my-local-mod".to_string(),
             ModEntry::Detailed(DetailedModEntry {
                 version: Some("1.0.0".to_string()),
+                file_id: None,
                 source: Some(SourceKind::Local),
                 side: None,
                 project_id: None,
