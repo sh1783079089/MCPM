@@ -111,6 +111,26 @@ pub enum Commands {
 
     /// Apply the last generated update plan
     ApplyPlan,
+
+    /// Import existing content into the modpack
+    Import {
+        #[command(subcommand)]
+        target: ImportTarget,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ImportTarget {
+    /// Import mods from the existing mods/ directory
+    Mods {
+        /// Preview changes without writing to mcpm.toml
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Overwrite entries that already exist in mcpm.toml
+        #[arg(long)]
+        overwrite: bool,
+    },
 }
 
 const CONFIG_FILE: &str = "mcpm.toml";
@@ -1195,6 +1215,235 @@ async fn cmd_apply_plan() -> Result<()> {
     apply_update_plan(&plan).await
 }
 
+struct ImportCandidate {
+    key: String,
+    entry: ModEntry,
+    is_local: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum MergeOutcome {
+    Added,
+    Overwritten,
+    Skipped,
+}
+
+fn merge_entry(
+    config: &mut PackConfig,
+    candidate: &ImportCandidate,
+    overwrite: bool,
+) -> MergeOutcome {
+    let exists = config.mods.contains_key(&candidate.key);
+    if exists && !overwrite {
+        MergeOutcome::Skipped
+    } else {
+        config
+            .mods
+            .insert(candidate.key.clone(), candidate.entry.clone());
+        if exists {
+            MergeOutcome::Overwritten
+        } else {
+            MergeOutcome::Added
+        }
+    }
+}
+
+async fn lookup_mod(
+    registry: &ModrinthClient,
+    path: &std::path::Path,
+    metadata: &mcpm_metadata::ModMetadata,
+) -> Result<ImportCandidate, anyhow::Error> {
+    let sha512 = mcpm_core::hash::sha512_hex(path).ok();
+    let sha1 = mcpm_core::hash::sha1_hex(path).ok();
+
+    let mut found: Option<(String, String, String)> = None;
+    if let Some(ref hash) = sha512 {
+        if let Some(version) = registry.get_version_by_hash(hash, "sha512").await? {
+            if let Ok(project) = registry.get_project(&version.project_id).await {
+                found = Some((
+                    project.id,
+                    project.slug.unwrap_or(metadata.id.clone()),
+                    version.version_number,
+                ));
+            }
+        }
+    }
+    if found.is_none() {
+        if let Some(ref hash) = sha1 {
+            if let Some(version) = registry.get_version_by_hash(hash, "sha1").await? {
+                if let Ok(project) = registry.get_project(&version.project_id).await {
+                    found = Some((
+                        project.id,
+                        project.slug.unwrap_or(metadata.id.clone()),
+                        version.version_number,
+                    ));
+                }
+            }
+        }
+    }
+
+    if found.is_none() {
+        if let Ok(project) = registry.get_project(&metadata.id).await {
+            found = Some((
+                project.id,
+                project.slug.unwrap_or(metadata.id.clone()),
+                metadata
+                    .version
+                    .clone()
+                    .unwrap_or_else(|| "latest".to_string()),
+            ));
+        }
+    }
+
+    if found.is_none() {
+        let query = metadata.name.as_deref().unwrap_or(&metadata.id);
+        let results = registry.search_projects(query).await.unwrap_or_default();
+        let matched = results
+            .iter()
+            .find(|p| p.slug.as_deref() == Some(metadata.id.as_str()))
+            .or_else(|| results.first());
+        if let Some(project) = matched {
+            found = Some((
+                project.id.clone(),
+                project.slug.clone().unwrap_or(metadata.id.clone()),
+                metadata
+                    .version
+                    .clone()
+                    .unwrap_or_else(|| "latest".to_string()),
+            ));
+        }
+    }
+
+    let side = match metadata.environment {
+        Side::Client => Some(Side::Client),
+        Side::Server => Some(Side::Server),
+        Side::Both => None,
+    };
+
+    match found {
+        Some((project_id, key, version)) => Ok(ImportCandidate {
+            key,
+            entry: ModEntry::Detailed(DetailedModEntry {
+                version: Some(version),
+                source: Some(mcpm_core::SourceKind::Modrinth),
+                side,
+                project_id: Some(project_id),
+            }),
+            is_local: false,
+        }),
+        None => Ok(ImportCandidate {
+            key: metadata.id.clone(),
+            entry: ModEntry::Detailed(DetailedModEntry {
+                version: metadata.version.clone(),
+                source: Some(mcpm_core::SourceKind::Local),
+                side,
+                project_id: None,
+            }),
+            is_local: true,
+        }),
+    }
+}
+
+async fn cmd_import_mods(dry_run: bool, overwrite: bool) -> Result<()> {
+    let mut config = load_config()?;
+    let registry = ModrinthClient::new();
+
+    let entries = std::fs::read_dir("mods")
+        .with_context(|| t!("cli.import.no_mods_dir"))?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("jar"))
+        .collect::<Vec<_>>();
+
+    if entries.is_empty() {
+        println!("{}", t!("cli.import.empty"));
+        return Ok(());
+    }
+
+    println!(
+        "{}",
+        t!("cli.import.scanning", count = entries.len().to_string())
+    );
+
+    let mut added = 0;
+    let mut skipped = 0;
+    let mut local_count = 0;
+    let mut seen_ids: HashSet<String> = HashSet::new();
+    let mut working = config.clone();
+
+    for path in &entries {
+        let metadatas = match mcpm_metadata::parse_jar(path) {
+            Ok(metadatas) => metadatas,
+            Err(e) => {
+                let filename = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                eprintln!(
+                    "{}",
+                    t!(
+                        "cli.import.parse_error",
+                        filename = filename,
+                        error = e.to_string()
+                    )
+                );
+                continue;
+            }
+        };
+
+        for metadata in metadatas {
+            if !seen_ids.insert(metadata.id.clone()) {
+                eprintln!("{}", t!("cli.import.duplicate_id", id = &metadata.id));
+                continue;
+            }
+
+            let candidate = lookup_mod(&registry, path, &metadata).await?;
+
+            if candidate.is_local {
+                local_count += 1;
+                eprintln!("{}", t!("cli.import.local_mod", id = &candidate.key));
+            }
+
+            match merge_entry(&mut working, &candidate, overwrite) {
+                MergeOutcome::Skipped => {
+                    skipped += 1;
+                    println!("{}", t!("cli.import.skip_existing", key = &candidate.key));
+                }
+                MergeOutcome::Added => {
+                    added += 1;
+                    println!("{}", t!("cli.import.add_entry", key = &candidate.key));
+                }
+                MergeOutcome::Overwritten => {
+                    added += 1;
+                    println!("{}", t!("cli.import.overwrite_entry", key = &candidate.key));
+                }
+            }
+        }
+    }
+
+    if !dry_run {
+        config = working;
+        save_config(&config)?;
+    }
+
+    println!(
+        "{}",
+        t!(
+            "cli.import.summary",
+            added = added.to_string(),
+            skipped = skipped.to_string(),
+            local = local_count.to_string()
+        )
+    );
+    if dry_run {
+        println!("{}", t!("cli.import.dry_run"));
+    } else {
+        println!("{}", t!("cli.import.written", path = CONFIG_FILE));
+    }
+
+    Ok(())
+}
+
 fn build_cli() -> Command {
     Cli::command()
         .about(t!("cli.about").to_string())
@@ -1225,6 +1474,7 @@ fn build_cli() -> Command {
         .mut_subcommand("apply-plan", |c| {
             c.about(t!("cli.apply_plan.help").to_string())
         })
+        .mut_subcommand("import", |c| c.about(t!("cli.import.help").to_string()))
 }
 
 #[tokio::main]
@@ -1262,6 +1512,11 @@ async fn main() -> Result<()> {
             Commands::UpgradeEnv { target_minecraft } => cmd_upgrade_env(target_minecraft).await,
             Commands::MigrateLoader { to } => cmd_migrate_loader(to).await,
             Commands::ApplyPlan => cmd_apply_plan().await,
+            Commands::Import { target } => match target {
+                ImportTarget::Mods { dry_run, overwrite } => {
+                    cmd_import_mods(dry_run, overwrite).await
+                }
+            },
         },
     };
 
@@ -1271,4 +1526,79 @@ async fn main() -> Result<()> {
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_with(keys: &[&str]) -> PackConfig {
+        let mut mods = indexmap::IndexMap::new();
+        for key in keys {
+            mods.insert(key.to_string(), ModEntry::Simple("latest".to_string()));
+        }
+        PackConfig {
+            pack: PackMeta {
+                name: "test".to_string(),
+                author: None,
+                description: None,
+            },
+            environment: Environment {
+                minecraft: "1.20.1".to_string(),
+                minecraft_range: None,
+                loader: LoaderSpec::Fixed(LoaderKind::Fabric),
+                loader_candidates: None,
+                loader_version: None,
+                side: Side::Both,
+            },
+            preferences: Preferences::default(),
+            mods,
+            compatibility: None,
+        }
+    }
+
+    fn candidate(key: &str) -> ImportCandidate {
+        ImportCandidate {
+            key: key.to_string(),
+            entry: ModEntry::Detailed(DetailedModEntry {
+                version: Some("1.0.0".to_string()),
+                source: Some(mcpm_core::SourceKind::Modrinth),
+                side: None,
+                project_id: Some("abc".to_string()),
+            }),
+            is_local: false,
+        }
+    }
+
+    #[test]
+    fn test_merge_entry_added() {
+        let mut config = config_with(&[]);
+        assert_eq!(
+            merge_entry(&mut config, &candidate("sodium"), false),
+            MergeOutcome::Added
+        );
+        assert!(config.mods.contains_key("sodium"));
+    }
+
+    #[test]
+    fn test_merge_entry_skip_existing() {
+        let mut config = config_with(&["sodium"]);
+        let outcome = merge_entry(&mut config, &candidate("sodium"), false);
+        assert_eq!(outcome, MergeOutcome::Skipped);
+        assert!(matches!(
+            config.mods.get("sodium"),
+            Some(ModEntry::Simple(v)) if v == "latest"
+        ));
+    }
+
+    #[test]
+    fn test_merge_entry_overwrite() {
+        let mut config = config_with(&["sodium"]);
+        let outcome = merge_entry(&mut config, &candidate("sodium"), true);
+        assert_eq!(outcome, MergeOutcome::Overwritten);
+        assert!(matches!(
+            config.mods.get("sodium"),
+            Some(ModEntry::Detailed(_))
+        ));
+    }
 }

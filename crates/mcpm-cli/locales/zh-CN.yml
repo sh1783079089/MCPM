@@ -91,6 +91,20 @@ cli:
     migrated: "已迁移到加载器 %{loader}"
   apply_plan:
     help: "应用最近生成的更新计划"
+  import:
+    help: "将现有内容导入模组包"
+    no_mods_dir: "未找到 mods/ 目录"
+    empty: "mods/ 中没有 jar 文件"
+    scanning: "正在扫描 mods/ 下的 %{count} 个 jar 文件..."
+    parse_error: "  解析失败 %{filename}：%{error}"
+    duplicate_id: "  重复的模组 id '%{id}' 已跳过"
+    local_mod: "  本地模组 '%{id}' 未在 Modrinth 找到，已标记为 local"
+    add_entry: "  + %{key}"
+    overwrite_entry: "  ~ %{key}（覆盖）"
+    skip_existing: "  = %{key}（已存在，跳过）"
+    summary: "导入结果：新增 %{added}，跳过 %{skipped}，本地 %{local}"
+    dry_run: "预览模式：未写入任何更改。"
+    written: "已更新 %{path}。"
   plan:
     header: "更新计划："
     install: "  + 安装 %{name} %{version}"

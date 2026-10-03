@@ -67,6 +67,42 @@ impl ModrinthClient {
             .map_err(|e| McpmError::Registry(format!("failed to parse {}: {}", what, e)))
     }
 
+    /// Looks up a specific version by file hash (sha512 or sha1).
+    /// Returns `None` when Modrinth has no matching file.
+    pub async fn get_version_by_hash(
+        &self,
+        hash: &str,
+        algorithm: &str,
+    ) -> Result<Option<ModVersion>, McpmError> {
+        let url = format!(
+            "{}/version_file/{}?algorithm={}",
+            self.base_url,
+            url_encode(hash),
+            url_encode(algorithm)
+        );
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| McpmError::Registry(format!("Modrinth hash lookup failed: {}", e)))?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !resp.status().is_success() {
+            return Err(McpmError::Registry(format!(
+                "Modrinth hash lookup returned status {}",
+                resp.status()
+            )));
+        }
+
+        let version: ModrinthVersion = resp.json().await.map_err(|e| {
+            McpmError::Registry(format!("Failed to parse Modrinth version response: {}", e))
+        })?;
+        Ok(Some(convert_version(version)))
+    }
+
     async fn get_text(&self, url: &str, what: &str) -> Result<String, McpmError> {
         let resp = self
             .client

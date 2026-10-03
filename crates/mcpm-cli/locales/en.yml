@@ -91,6 +91,20 @@ cli:
     migrated: "Migrated to loader %{loader}"
   apply_plan:
     help: "Apply the last generated update plan"
+  import:
+    help: "Import existing content into the modpack"
+    no_mods_dir: "no mods/ directory found"
+    empty: "no jar files found in mods/"
+    scanning: "Scanning %{count} jar file(s) in mods/..."
+    parse_error: "  PARSE ERROR %{filename}: %{error}"
+    duplicate_id: "  DUPLICATE mod id '%{id}' skipped"
+    local_mod: "  LOCAL '%{id}' not found on Modrinth; marked as local"
+    add_entry: "  + %{key}"
+    overwrite_entry: "  ~ %{key} (overwrite)"
+    skip_existing: "  = %{key} (already present, skipped)"
+    summary: "Imported: %{added} added, %{skipped} skipped, %{local} local"
+    dry_run: "Dry run: no changes written."
+    written: "Updated %{path}."
   plan:
     header: "Update plan:"
     install: "  + install %{name} %{version}"
