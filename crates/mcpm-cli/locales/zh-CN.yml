@@ -107,6 +107,18 @@ cli:
     summary: "导入结果：新增 %{added}，跳过 %{skipped}，本地 %{local}"
     dry_run: "预览模式：未写入任何更改。"
     written: "已更新 %{path}。"
+  import_cf:
+    parse_error: "解析 CurseForge manifest 失败：%{error}"
+    no_files: "manifest 不包含任何文件"
+    no_api_key: "未配置 CurseForge API key；请设置 CURSEFORGE_API_KEY 或用户配置"
+    project_error: "  解析项目 %{id} 失败：%{error}"
+    summary: "CurseForge manifest 导入完成：新增 %{added}，跳过 %{skipped}，失败 %{failed}"
+  export:
+    help: "将模组包导出为外部格式"
+  export_cf:
+    skipped: "  已跳过 '%{name}'（非 CurseForge 来源）"
+    write_error: "写入 manifest 失败：%{error}"
+    written: "已写入 %{path}：%{count} 个文件，跳过 %{skipped} 个"
   plan:
     header: "更新计划："
     install: "  + 安装 %{name} %{version}"

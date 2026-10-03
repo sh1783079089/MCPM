@@ -1158,6 +1158,7 @@ dependencies = [
  "clap",
  "indexmap",
  "mcpm-core",
+ "mcpm-export",
  "mcpm-installer",
  "mcpm-metadata",
  "mcpm-registry",
@@ -1192,6 +1193,15 @@ dependencies = [
  "sha2",
  "thiserror 2.0.18",
  "toml",
+]
+
+[[package]]
+name = "mcpm-export"
+version = "0.1.0"
+dependencies = [
+ "mcpm-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

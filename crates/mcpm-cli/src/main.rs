@@ -122,6 +122,12 @@ pub enum Commands {
         #[command(subcommand)]
         target: ImportTarget,
     },
+
+    /// Export the modpack to external formats
+    Export {
+        #[command(subcommand)]
+        target: ExportTarget,
+    },
 }
 
 #[derive(Subcommand)]
@@ -135,6 +141,22 @@ pub enum ImportTarget {
         /// Overwrite entries that already exist in mcpm.toml
         #[arg(long)]
         overwrite: bool,
+    },
+
+    /// Import a CurseForge modpack manifest
+    Curseforge {
+        /// Path to the manifest.json file
+        file: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ExportTarget {
+    /// Export a CurseForge modpack manifest
+    Curseforge {
+        /// Output file (defaults to manifest.json)
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
 }
 
@@ -1486,6 +1508,132 @@ async fn cmd_import_mods(dry_run: bool, overwrite: bool) -> Result<()> {
     Ok(())
 }
 
+async fn cmd_import_curseforge(file: PathBuf) -> Result<()> {
+    let mut config = load_config()?;
+    let content = std::fs::read_to_string(&file)
+        .with_context(|| t!("cli.error.load_config", file = file.display().to_string()))?;
+    let manifest = mcpm_export::parse_cf_manifest(&content)
+        .map_err(|e| anyhow::anyhow!("{}", t!("cli.import_cf.parse_error", error = e)))?;
+
+    if let Some(primary) = manifest
+        .minecraft
+        .mod_loaders
+        .iter()
+        .find(|loader| loader.primary)
+        .or_else(|| manifest.minecraft.mod_loaders.first())
+    {
+        if let Some((loader, loader_version)) = mcpm_export::split_loader_id(&primary.id) {
+            config.environment.loader = LoaderSpec::Fixed(loader);
+            config.environment.loader_version = loader_version;
+        }
+    }
+    config.environment.minecraft = manifest.minecraft.version.clone();
+
+    if manifest.files.is_empty() {
+        anyhow::bail!("{}", t!("cli.import_cf.no_files"));
+    }
+
+    let api_key = mcpm_core::userconfig::curseforge_api_key()
+        .ok_or_else(|| anyhow::anyhow!("{}", t!("cli.import_cf.no_api_key")))?;
+    let curseforge = CurseForgeClient::new(api_key);
+
+    let mut added = 0;
+    let mut skipped = 0;
+    let mut failed = 0;
+
+    for file in &manifest.files {
+        let key = file.project_id.to_string();
+        if config.mods.contains_key(&key) {
+            skipped += 1;
+            println!("{}", t!("cli.import.skip_existing", key = &key));
+            continue;
+        }
+
+        let project = match curseforge
+            .get_project(mcpm_core::SourceKind::CurseForge, &key)
+            .await
+        {
+            Ok(project) => project,
+            Err(e) => {
+                failed += 1;
+                eprintln!(
+                    "{}",
+                    t!(
+                        "cli.import_cf.project_error",
+                        id = &key,
+                        error = e.to_string()
+                    )
+                );
+                continue;
+            }
+        };
+
+        let display_name = project
+            .slug
+            .clone()
+            .unwrap_or_else(|| project.title.clone());
+        config.mods.insert(
+            display_name.clone(),
+            ModEntry::Detailed(DetailedModEntry {
+                version: None,
+                file_id: Some(file.file_id.to_string()),
+                source: Some(mcpm_core::SourceKind::CurseForge),
+                side: None,
+                project_id: Some(project.id.clone()),
+            }),
+        );
+        added += 1;
+        println!("{}", t!("cli.import.add_entry", key = &display_name));
+    }
+
+    save_config(&config)?;
+
+    println!(
+        "{}",
+        t!(
+            "cli.import_cf.summary",
+            added = added.to_string(),
+            skipped = skipped.to_string(),
+            failed = failed.to_string()
+        )
+    );
+    Ok(())
+}
+
+async fn cmd_export_curseforge(output: Option<PathBuf>) -> Result<()> {
+    let config = load_config()?;
+    let lockfile =
+        load_lockfile()?.ok_or_else(|| anyhow::anyhow!("{}", t!("cli.update.no_lockfile")))?;
+
+    let (manifest, skipped) = mcpm_export::lockfile_to_cf_manifest(
+        &lockfile,
+        &config.pack.name,
+        "1.0.0",
+        config.pack.author.as_deref(),
+    );
+
+    for name in &skipped {
+        eprintln!("{}", t!("cli.export_cf.skipped", name = name));
+    }
+
+    let content = mcpm_export::write_cf_manifest(&manifest)
+        .map_err(|e| anyhow::anyhow!("{}", t!("cli.export_cf.write_error", error = e)))?;
+    let path = output.unwrap_or_else(|| PathBuf::from("manifest.json"));
+    std::fs::write(&path, content)
+        .with_context(|| t!("cli.error.save_config", file = path.display().to_string()))?;
+
+    println!(
+        "{}",
+        t!(
+            "cli.export_cf.written",
+            path = path.display().to_string(),
+            count = manifest.files.len().to_string(),
+            skipped = skipped.len().to_string()
+        )
+    );
+    Ok(())
+}
+
 fn build_cli() -> Command {
     Cli::command()
         .about(t!("cli.about").to_string())
@@ -1517,6 +1665,7 @@ fn build_cli() -> Command {
             c.about(t!("cli.apply_plan.help").to_string())
         })
         .mut_subcommand("import", |c| c.about(t!("cli.import.help").to_string()))
+        .mut_subcommand("export", |c| c.about(t!("cli.export.help").to_string()))
 }
 
 #[tokio::main]
@@ -1558,6 +1707,10 @@ async fn main() -> Result<()> {
                 ImportTarget::Mods { dry_run, overwrite } => {
                     cmd_import_mods(dry_run, overwrite).await
                 }
+                ImportTarget::Curseforge { file } => cmd_import_curseforge(file).await,
+            },
+            Commands::Export { target } => match target {
+                ExportTarget::Curseforge { output } => cmd_export_curseforge(output).await,
             },
         },
     };

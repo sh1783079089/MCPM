@@ -107,6 +107,18 @@ cli:
     summary: "Imported: %{added} added, %{skipped} skipped, %{local} local"
     dry_run: "Dry run: no changes written."
     written: "Updated %{path}."
+  import_cf:
+    parse_error: "failed to parse CurseForge manifest: %{error}"
+    no_files: "manifest contains no files"
+    no_api_key: "CurseForge API key is not configured; set CURSEFORGE_API_KEY or user config"
+    project_error: "  failed to resolve project %{id}: %{error}"
+    summary: "Imported from CurseForge manifest: %{added} added, %{skipped} skipped, %{failed} failed"
+  export:
+    help: "Export the modpack to external formats"
+  export_cf:
+    skipped: "  SKIPPED '%{name}' (not from CurseForge)"
+    write_error: "failed to write manifest: %{error}"
+    written: "Wrote %{path}: %{count} file(s), %{skipped} skipped"
   plan:
     header: "Update plan:"
     install: "  + install %{name} %{version}"

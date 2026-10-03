@@ -13,6 +13,7 @@ mcpm-registry = { path = "../mcpm-registry" }
 mcpm-resolver = { path = "../mcpm-resolver" }
 mcpm-installer = { path = "../mcpm-installer" }
 mcpm-metadata = { path = "../mcpm-metadata" }
+mcpm-export = { path = "../mcpm-export" }
 clap = { version = "4", default-features = false, features = ["std", "derive", "help"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tracing = "0.1"
