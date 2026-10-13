@@ -25,6 +25,24 @@
 - 在第一个里程碑完整支持 CurseForge。
 - 自动解决所有可能的模组冲突。
 
+## 下载与安装
+
+CI 会在每次推送到 `main` 后构建三平台产物（在该次 Actions 运行页面的 Artifacts 下载）；推送 `v*` 标签时会发布到 GitHub Releases，并附带 `checksums.txt`（SHA-256）。
+
+| 平台 | 产物 | 使用方式 |
+|---|---|---|
+| Windows x64 | `mcpm-<version>-windows-x86_64.zip` | 解压后在终端运行 `mcpm.exe`（绿色版） |
+| Linux x64 | `mcpm-<version>-linux-x86_64.AppImage` | `chmod +x` 后在终端运行，CLI 参数原样透传 |
+| Linux (deb) | `mcpm_<version>_amd64.deb` | `sudo apt install ./mcpm_<version>_amd64.deb`，安装到 `/usr/bin/mcpm` |
+| Linux (rpm) | `mcpm-<version>-*.rpm` | `sudo rpm -ivh mcpm-<version>-*.rpm`（或 `dnf install`） |
+| macOS ARM64 | `mcpm-<version>-macos-aarch64.tar.gz` | 解压后在终端运行 `mcpm`（绿色版） |
+
+注意事项：
+
+- AppImage 可在缺少 FUSE 的环境使用 `APPIMAGE_EXTRACT_AND_RUN=1 ./mcpm-*.AppImage ...` 运行。
+- Linux 包基于 Ubuntu 24.04 构建，需要较新的 glibc；`deb` 声明 `libssl3 | libssl3t64` 兼容不同发行版命名。
+- Windows 安装器（Inno Setup，自动加入 PATH）与 WinGet 分发计划在正式版提供。
+
 ## 文档索引
 
 - [01. 架构设计](doc/01-architecture.md)

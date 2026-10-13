@@ -266,6 +266,39 @@ mcpm import mods
 - 跳过已存在条目的默认行为不会覆盖用户手动配置。
 - 第三方/私有模组被正确标记为 local source 并给出警告。
 
+## 阶段 12：Windows 安装器与 WinGet 分发
+
+目标：
+
+```text
+正式版提供 Windows 安装器（安装后自动加入 PATH），并可通过 WinGet 安装和升级。
+```
+
+前提：三平台二进制构建已在 CI 实现（Windows ZIP 绿色版、Linux AppImage/deb/rpm、macOS TAR.GZ），本阶段聚焦 Windows 安装器与 WinGet 渠道。
+
+任务：
+
+- Inno Setup 安装器：
+  - 默认安装到当前用户目录（如 `%LOCALAPPDATA%\Programs\mcpm`），无需管理员权限。
+  - 提供「添加到 PATH」选项，默认勾选，写入用户 PATH。
+  - 避免重复添加 PATH 条目，保留用户原有 PATH 内容。
+  - 卸载时移除本安装器写入的 PATH 条目。
+  - 安装完成后提示重新打开终端使环境变量生效。
+- CI 集成：
+  - Windows 构建任务同时产出 `mcpm-<version>-windows-x64-setup.exe`。
+  - GitHub Release 同时上传 ZIP 绿色版与安装器。
+- WinGet 分发：
+  - 首个正式版本发布后，向 `microsoft/winget-pkgs` 提交包清单（版本、安装 URL、SHA-256、安装类型）。
+  - 在 portable 包（复用 Release 绿色版二进制，WinGet 管理命令别名与 PATH）与安装器包（与手动安装行为一致）之间做选择。
+  - 首次清单提交需通过社区仓库审核。
+  - 后续版本发布后自动生成新版本清单并提交更新 PR。
+
+验收：
+
+- 安装器安装后，新打开的终端可直接运行 `mcpm`。
+- 卸载后 PATH 条目被正确清理。
+- 清单合入后 `winget install / upgrade / uninstall` 全流程可用。
+
 ## 实现状态
 
 | 阶段 | 状态 | 说明 |
@@ -283,6 +316,7 @@ mcpm import mods
 | 9 CurseForge 支持 | ✅ 完成 | API client、API key 配置、多来源路由、manifest 导入/导出、手动下载说明 |
 | 10 导入导出与服务端包 | ◐ 部分 | CurseForge manifest 已实现；mrpack / server-pack 未实现 |
 | 11 反向导入已有模组 | ✅ 完成 | `import mods`，Modrinth hash 反查，local 跳过 |
+| 12 Windows 安装器与 WinGet 分发 | ⬜ 未开始 | CI 三平台产物已实现；Inno Setup 与 winget 清单待正式版 |
 
 ### 已知偏差与后续项
 
