@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=mcpm
+GenericName=Minecraft Modpack Manager
+Comment=Manage Minecraft modpacks with reproducible dependency resolution
+Exec=mcpm
+Terminal=true
+Icon=mcpm
+Categories=Development;Utility;

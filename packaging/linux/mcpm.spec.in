@@ -1,0 +1,24 @@
+Name:           mcpm
+Version:        @VERSION@
+Release:        1%{?dist}
+Summary:        Minecraft modpack manager
+
+License:        BSD-3-Clause
+Packager:       mcpm contributors
+
+%description
+Reproducible Minecraft modpack management with dependency
+resolution, environment solving and compatibility checks.
+
+%prep
+
+%build
+
+%install
+rm -rf "%{buildroot}"
+install -D -m 0755 "%{binpath}" "%{buildroot}/usr/bin/mcpm"
+install -D -m 0644 "%{licensepath}" "%{buildroot}/usr/share/licenses/mcpm/LICENSE"
+
+%files
+%attr(0755,root,root) /usr/bin/mcpm
+/usr/share/licenses/mcpm/LICENSE

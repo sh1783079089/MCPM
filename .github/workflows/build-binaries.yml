@@ -1,0 +1,168 @@
+name: Build binaries
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            platform: windows-x86_64
+            target: x86_64-pc-windows-msvc
+          - os: macos-14
+            platform: macos-aarch64
+            target: aarch64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Compute version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF#refs/tags/v}"
+          else
+            version="$(sed -n 's/^version = "\([^"]*\)".*/\1/p' Cargo.toml | head -n 1)"
+          fi
+          if [[ -z "$version" ]]; then
+            echo "failed to determine version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "ARTIFACT_NAME=mcpm-$version-${{ matrix.platform }}" >> "$GITHUB_ENV"
+
+      - name: Build release binary
+        shell: bash
+        run: |
+          cargo build --locked --release -p mcpm-cli --bin mcpm --target "${{ matrix.target }}"
+
+      - name: Package Linux (AppImage, deb, rpm)
+        if: runner.os == 'Linux'
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends binutils file rpm zip unzip
+          BIN="target/${{ matrix.target }}/release/mcpm"
+          "$BIN" --version
+          bash packaging/linux/build-appimage.sh "$BIN" "${{ steps.version.outputs.version }}" dist
+          bash packaging/linux/build-deb.sh "$BIN" "${{ steps.version.outputs.version }}" dist
+          bash packaging/linux/build-rpm.sh "$BIN" "${{ steps.version.outputs.version }}" dist
+          ls -l dist
+          (cd dist && zip -q -r ../artifact.zip .)
+
+      - name: Verify deb package in Ubuntu container
+        if: runner.os == 'Linux'
+        run: |
+          set -euxo pipefail
+          docker run --rm -v "$PWD:/work" -w /work ubuntu:24.04 bash -euc '
+            apt-get update -qq
+            apt-get install -y -qq ./dist/mcpm_*_amd64.deb
+            mcpm --version'
+
+      - name: Verify rpm package in Fedora container
+        if: runner.os == 'Linux'
+        run: |
+          set -euxo pipefail
+          docker run --rm -v "$PWD:/work" -w /work fedora:latest bash -euc '
+            dnf install -y -q dist/mcpm-*.rpm
+            mcpm --version'
+
+      - name: Package Windows (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path stage, dist | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/mcpm.exe" stage/
+          Copy-Item LICENSE stage/
+          & stage/mcpm.exe --version
+          Compress-Archive -Path stage/* -DestinationPath "dist/mcpm-$v-windows-x86_64.zip"
+          Compress-Archive -Path dist/* -DestinationPath artifact.zip
+
+      - name: Package macOS (tar.gz)
+        if: runner.os == 'macOS'
+        run: |
+          set -euxo pipefail
+          v="${{ steps.version.outputs.version }}"
+          mkdir -p stage dist
+          cp "target/${{ matrix.target }}/release/mcpm" stage/
+          cp LICENSE stage/
+          chmod +x stage/mcpm
+          ./stage/mcpm --version
+          tar -czf "dist/mcpm-$v-macos-aarch64.tar.gz" -C stage mcpm LICENSE
+          (cd dist && zip -q -r ../artifact.zip .)
+
+      - name: Upload build artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          gh api --method POST \
+            -H "Content-Type: application/zip" \
+            --input artifact.zip \
+            "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?name=${ARTIFACT_NAME}"
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          mkdir -p release
+          ids="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[].id')"
+          for id in $ids; do
+            gh api "repos/${{ github.repository }}/actions/artifacts/$id/zip" > "artifact-$id.zip"
+            unzip -o -q "artifact-$id.zip" -d release
+            rm "artifact-$id.zip"
+          done
+          ls -l release
+
+      - name: Generate checksums
+        run: |
+          set -euxo pipefail
+          cd release
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          tag="$GITHUB_REF_NAME"
+          gh release create "$tag" \
+            --title "mcpm ${tag#v}" \
+            --generate-notes \
+            release/*

@@ -1,0 +1,6 @@
+# Keep shell scripts and AppImage entry points runnable on any checkout host.
+*.sh text eol=lf
+packaging/appimage/AppRun text eol=lf
+packaging/linux/*.spec.in text eol=lf
+*.desktop text eol=lf
+*.png binary

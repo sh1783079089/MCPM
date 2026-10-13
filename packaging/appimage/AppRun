@@ -1,0 +1,5 @@
+#!/bin/sh
+# AppImage entry point for the mcpm CLI.
+SELF="$(readlink -f "$0")"
+HERE="$(dirname "$SELF")"
+exec "${HERE}/usr/bin/mcpm" "$@"
