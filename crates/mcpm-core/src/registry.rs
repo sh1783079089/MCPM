@@ -56,6 +56,7 @@ pub enum DependencyKind {
     Incompatible,
 }
 
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait Registry: Send + Sync {
     async fn search_projects(&self, query: &str) -> Result<Vec<Project>, McpmError>;
@@ -74,6 +75,7 @@ pub struct LoaderVersion {
 }
 
 /// Source of available loader versions for a given loader type.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait LoaderVersionRegistry: Send + Sync {
     async fn get_loader_versions(
