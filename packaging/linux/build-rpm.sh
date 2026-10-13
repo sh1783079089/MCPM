@@ -11,6 +11,7 @@ fi
 BIN="$(readlink -f "$1")"
 RAW_VERSION="$2"
 OUT="$(readlink -fm "$3")"
+mkdir -p "$OUT"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LICENSE_PATH="$(readlink -f "$SCRIPT_DIR/../../LICENSE")"
 

@@ -60,19 +60,26 @@ jobs:
         run: |
           cargo build --locked --release -p mcpm-cli --bin mcpm --target "${{ matrix.target }}"
 
-      - name: Package Linux (AppImage, deb, rpm)
+      - name: Install Linux packaging tools
         if: runner.os == 'Linux'
         run: |
           set -euxo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends binutils file rpm zip unzip
+          sudo apt-get install -y -qq --no-install-recommends binutils file rpm
           BIN="target/${{ matrix.target }}/release/mcpm"
           "$BIN" --version
-          bash packaging/linux/build-appimage.sh "$BIN" "${{ steps.version.outputs.version }}" dist
-          bash packaging/linux/build-deb.sh "$BIN" "${{ steps.version.outputs.version }}" dist
-          bash packaging/linux/build-rpm.sh "$BIN" "${{ steps.version.outputs.version }}" dist
-          ls -l dist
-          (cd dist && zip -q -r ../artifact.zip .)
+
+      - name: Package Linux AppImage
+        if: runner.os == 'Linux'
+        run: bash packaging/linux/build-appimage.sh "target/${{ matrix.target }}/release/mcpm" "${{ steps.version.outputs.version }}" dist
+
+      - name: Package Linux DEB
+        if: runner.os == 'Linux'
+        run: bash packaging/linux/build-deb.sh "target/${{ matrix.target }}/release/mcpm" "${{ steps.version.outputs.version }}" dist
+
+      - name: Package Linux RPM
+        if: runner.os == 'Linux'
+        run: bash packaging/linux/build-rpm.sh "target/${{ matrix.target }}/release/mcpm" "${{ steps.version.outputs.version }}" dist
 
       - name: Verify deb package in Ubuntu container
         if: runner.os == 'Linux'
@@ -101,7 +108,6 @@ jobs:
           Copy-Item LICENSE stage/
           & stage/mcpm.exe --version
           Compress-Archive -Path stage/* -DestinationPath "dist/mcpm-$v-windows-x86_64.zip"
-          Compress-Archive -Path dist/* -DestinationPath artifact.zip
 
       - name: Package macOS (tar.gz)
         if: runner.os == 'macOS'
@@ -114,18 +120,15 @@ jobs:
           chmod +x stage/mcpm
           ./stage/mcpm --version
           tar -czf "dist/mcpm-$v-macos-aarch64.tar.gz" -C stage mcpm LICENSE
-          (cd dist && zip -q -r ../artifact.zip .)
 
       - name: Upload build artifact
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euxo pipefail
-          gh api --method POST \
-            -H "Content-Type: application/zip" \
-            --input artifact.zip \
-            "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?name=${ARTIFACT_NAME}"
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
 
   release:
     name: Release
@@ -136,18 +139,11 @@ jobs:
       contents: write
     steps:
       - name: Download build artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euxo pipefail
-          mkdir -p release
-          ids="$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[].id')"
-          for id in $ids; do
-            gh api "repos/${{ github.repository }}/actions/artifacts/$id/zip" > "artifact-$id.zip"
-            unzip -o -q "artifact-$id.zip" -d release
-            rm "artifact-$id.zip"
-          done
-          ls -l release
+        uses: actions/download-artifact@v7
+        with:
+          pattern: mcpm-*
+          path: release
+          merge-multiple: true
 
       - name: Generate checksums
         run: |

@@ -2,4 +2,5 @@
 # AppImage entry point for the mcpm CLI.
 SELF="$(readlink -f "$0")"
 HERE="$(dirname "$SELF")"
+export LD_LIBRARY_PATH="${HERE}/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 exec "${HERE}/usr/bin/mcpm" "$@"
